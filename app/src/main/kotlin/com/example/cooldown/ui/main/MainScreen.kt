@@ -725,7 +725,7 @@ fun CoolDownMapScreen(
 
     // Active Route Bar when Detail Card is closed (Allows opening details again or removing route)
     if (uiState.activeRoute != null && uiState.selectedSpot == null) {
-      val route = uiState.activeRoute!!
+      val route = uiState.activeRoute
       Surface(
         modifier = Modifier
           .align(Alignment.TopCenter)
