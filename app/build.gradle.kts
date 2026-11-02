@@ -5,19 +5,31 @@ plugins {
 }
 
 android {
-  namespace = "com.example.cooldown"
+  namespace = "com.cooldown"
   compileSdk = 36
   defaultConfig {
-    applicationId = "com.example.cooldown"
+    applicationId = "com.cooldown"
     minSdk = 24
-    targetSdk = 36
+    targetSdk = 35
     versionCode = 1
     versionName = "1.0"
+  }
+
+  signingConfigs {
+    create("release") {
+      storeFile = file("cooldown-release.jks")
+      storePassword = "cooldown123"
+      keyAlias = "cooldown"
+      keyPassword = "cooldown123"
+      enableV1Signing = true
+      enableV2Signing = true
+    }
   }
 
   buildTypes {
     release {
       isMinifyEnabled = false
+      signingConfig = signingConfigs.getByName("release")
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
     }
   }
@@ -82,8 +94,10 @@ dependencies {
   implementation(libs.androidx.navigation3.runtime)
   implementation(libs.androidx.lifecycle.viewmodel.navigation3)
 
-  // Map & Serialization & Icons
+  // Map & Serialization & Icons & Ads & Billing
   implementation(libs.osmdroid.android)
   implementation(libs.kotlinx.serialization.json)
   implementation(libs.androidx.compose.material.icons.extended)
+  implementation(libs.play.services.ads)
+  implementation(libs.play.billing)
 }

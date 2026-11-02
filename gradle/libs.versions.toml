@@ -15,6 +15,8 @@ nav3Core = "1.0.1"
 lifecycleViewmodelNav3 = "2.10.0"
 osmdroid = "6.1.20"
 kotlinxSerializationJson = "1.8.0"
+playServicesAds = "23.6.0"
+playBilling = "7.1.1"
 
 [libraries]
 androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "androidxCore" }
@@ -41,6 +43,8 @@ androidx-lifecycle-viewmodel-navigation3 = { module = "androidx.lifecycle:lifecy
 osmdroid-android = { module = "org.osmdroid:osmdroid-android", version.ref = "osmdroid" }
 kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "kotlinxSerializationJson" }
 androidx-compose-material-icons-extended = { group = "androidx.compose.material", name = "material-icons-extended" }
+play-services-ads = { module = "com.google.android.gms:play-services-ads", version.ref = "playServicesAds" }
+play-billing = { module = "com.android.billingclient:billing-ktx", version.ref = "playBilling" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "androidGradlePlugin" }
