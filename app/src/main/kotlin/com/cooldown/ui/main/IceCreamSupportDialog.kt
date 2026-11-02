@@ -12,11 +12,14 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Button
@@ -39,6 +42,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.cooldown.data.AppLanguage
 import com.cooldown.data.GooglePlayBillingManager
 
@@ -57,11 +61,15 @@ fun IceCreamSupportDialog(
     }
   }
 
-  Dialog(onDismissRequest = onDismiss) {
+  Dialog(
+    onDismissRequest = onDismiss,
+    properties = DialogProperties(usePlatformDefaultWidth = false),
+  ) {
     Card(
       modifier = Modifier
-        .fillMaxWidth()
-        .padding(16.dp),
+        .fillMaxWidth(0.92f)
+        .padding(vertical = 24.dp)
+        .heightIn(max = 620.dp),
       shape = RoundedCornerShape(24.dp),
       colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
       elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
@@ -69,6 +77,7 @@ fun IceCreamSupportDialog(
       Column(
         modifier = Modifier
           .fillMaxWidth()
+          .verticalScroll(rememberScrollState())
           .padding(20.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
       ) {
@@ -95,34 +104,34 @@ fun IceCreamSupportDialog(
         Spacer(modifier = Modifier.height(10.dp))
 
         Text(
-          text = if (lang == AppLanguage.EN) "Buy me an Ice Cream! 🍦" else "Spendiere ein kühles Eis! 🍦",
+          text = if (lang == AppLanguage.EN) "Spendiere ein Eis 🍦" else "Spendiere ein Eis 🍦",
           style = MaterialTheme.typography.titleLarge,
           fontWeight = FontWeight.ExtraBold,
           textAlign = TextAlign.Center,
         )
 
-        Spacer(modifier = Modifier.height(6.dp))
+        Spacer(modifier = Modifier.height(8.dp))
 
         Text(
           text = if (lang == AppLanguage.EN) {
-            "Summer heat melts everything – including our servers and brain cells! ☀️🔥 Support the active development of CoolDown. Every treat fuels new cooling features, faster servers, and fresh shade. Huge thanks for your awesome support! ❤️"
+            "Support the continuous development of CoolDown and other apps with an ice-cold donation. In the fight against melting brain cells, you are our savior! Thank you so much for your support! ❤️"
           } else {
-            "Sommerhitze bringt nicht nur deinen Kopf zum Glühen, sondern auch unsere Server! ☀️🔥 Unterstütze die Weiterentwicklung von CoolDown mit einer eisgekühlten Spende. Jeder Cent fließt direkt in neue kühle Features, schnellere Server und den Kampf gegen schmelzende Gehirnzellen. Riesiges Dankeschön für deinen genialen Support! ❤️"
+            "Unterstütze die Weiterentwicklung von CoolDown und anderen Apps mit einer eisgekühlten Spende. Im Kampf gegen schmelzende Gehirnzellen bist du die Rettung. Vielen herzlichen Dank für deinen Support! ❤️"
           },
-          style = MaterialTheme.typography.bodySmall,
+          style = MaterialTheme.typography.bodyMedium,
           color = MaterialTheme.colorScheme.onSurfaceVariant,
           textAlign = TextAlign.Center,
-          lineHeight = 18.sp,
+          lineHeight = 20.sp,
         )
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(18.dp))
 
-        // Tier 1: Small Scoop
+        // Tier 1: Small Scoop (2 EUR)
         IceCreamTierItem(
           emoji = "🍦",
           title = if (lang == AppLanguage.EN) "Small Lemon Scoop" else "Kleines Bällchen Zitrone",
-          price = "1,49 €",
-          subtitle = if (lang == AppLanguage.EN) "Quick refreshment for the dev engine" else "Erfrischender Kickstart für die Entwicklung",
+          price = "2,00 €",
+          subtitle = if (lang == AppLanguage.EN) "Refreshing kickstart for app development" else "Erfrischender Kickstart für die Entwicklung",
           onClick = {
             if (activity != null) {
               billingManager.launchPurchase(activity, "ice_cream_small") {
@@ -141,14 +150,14 @@ fun IceCreamSupportDialog(
           },
         )
 
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(10.dp))
 
-        // Tier 2: Spaghetti Sundae (Popular)
+        // Tier 2: Spaghetti Sundae (3.99 EUR)
         IceCreamTierItem(
           emoji = "🍨",
-          title = if (lang == AppLanguage.EN) "Spaghetti Ice Cream Sundae" else "Großer Spaghetti-Eisbecher",
+          title = if (lang == AppLanguage.EN) "Spaghetti Ice Cream Sundae" else "Spaghetti Eis Becher",
           price = "3,99 €",
-          subtitle = if (lang == AppLanguage.EN) "Absolute Summer Hit! Keeps the code rolling" else "Der absolute Sommer-Hit! Hält die Entwickler wach",
+          subtitle = if (lang == AppLanguage.EN) "Absolute Summer Hit! Savior against heat" else "Der absolute Sommer-Hit! Rettung gegen Hitze",
           isPopular = true,
           onClick = {
             if (activity != null) {
@@ -156,7 +165,7 @@ fun IceCreamSupportDialog(
                 onSupportSuccess("ice_cream_medium")
                 Toast.makeText(
                   context,
-                  if (lang == AppLanguage.EN) "Huge thanks for the delicious sundae! ❤️🍨" else "Riesiges Dankeschön für den grandiosen Eisbecher! ❤️🍨",
+                  if (lang == AppLanguage.EN) "Huge thanks for the delicious sundae! ❤️🍨" else "Riesiges Dankeschön für den Spaghetti-Eisbecher! ❤️🍨",
                   Toast.LENGTH_LONG,
                 ).show()
                 onDismiss()
@@ -168,33 +177,7 @@ fun IceCreamSupportDialog(
           },
         )
 
-        Spacer(modifier = Modifier.height(8.dp))
-
-        // Tier 3: Giant Luxury
-        IceCreamTierItem(
-          emoji = "🍧",
-          title = if (lang == AppLanguage.EN) "Giant Luxury Bowl with Cream" else "Gigantischer Luxus-Eisbecher",
-          price = "6,99 €",
-          subtitle = if (lang == AppLanguage.EN) "True Summer Hero! Maximum development power" else "Ehren-Abkühler! Maximaler Support für neue Features",
-          onClick = {
-            if (activity != null) {
-              billingManager.launchPurchase(activity, "ice_cream_large") {
-                onSupportSuccess("ice_cream_large")
-                Toast.makeText(
-                  context,
-                  if (lang == AppLanguage.EN) "Legendary! You are a true CoolDown VIP! ❤️🍧" else "Legendär! Du bist ein wahrer CoolDown-Ehrenmensch! ❤️🍧",
-                  Toast.LENGTH_LONG,
-                ).show()
-                onDismiss()
-              }
-            } else {
-              onSupportSuccess("ice_cream_large")
-              onDismiss()
-            }
-          },
-        )
-
-        Spacer(modifier = Modifier.height(14.dp))
+        Spacer(modifier = Modifier.height(16.dp))
 
         Button(
           onClick = onDismiss,

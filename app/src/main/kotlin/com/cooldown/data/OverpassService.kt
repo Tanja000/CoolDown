@@ -455,15 +455,15 @@ class OverpassService {
       }
     }
 
-    // Try standard OSRM Route API (handles single stop or multi-stop sequentially)
+    // Standard OSRM Route API mit den echten, modusspezifischen Profilen (foot für Fußgänger, bike für Rad, car für Auto)
     val endpoints = when (travelMode) {
       TravelMode.WALKING -> listOf(
+        "https://routing.openstreetmap.de/routed-foot/route/v1/foot/$coordsString?overview=full&geometries=geojson",
         "https://routing.openstreetmap.de/routed-foot/route/v1/driving/$coordsString?overview=full&geometries=geojson",
-        "https://router.project-osrm.org/route/v1/foot/$coordsString?overview=full&geometries=geojson",
       )
       TravelMode.BICYCLING -> listOf(
+        "https://routing.openstreetmap.de/routed-bike/route/v1/bike/$coordsString?overview=full&geometries=geojson",
         "https://routing.openstreetmap.de/routed-bike/route/v1/driving/$coordsString?overview=full&geometries=geojson",
-        "https://router.project-osrm.org/route/v1/bike/$coordsString?overview=full&geometries=geojson",
       )
       TravelMode.DRIVING -> listOf(
         "https://routing.openstreetmap.de/routed-car/route/v1/driving/$coordsString?overview=full&geometries=geojson",
