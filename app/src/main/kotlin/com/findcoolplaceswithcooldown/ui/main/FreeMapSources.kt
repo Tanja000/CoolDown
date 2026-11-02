@@ -1,4 +1,4 @@
-package com.cooldown.ui.main
+package com.findcoolplaceswithcooldown.ui.main
 
 import org.osmdroid.tileprovider.tilesource.OnlineTileSourceBase
 import org.osmdroid.tileprovider.tilesource.XYTileSource

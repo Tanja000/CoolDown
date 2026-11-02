@@ -5,10 +5,10 @@ plugins {
 }
 
 android {
-  namespace = "com.cooldown"
+  namespace = "com.findcoolplaceswithcooldown"
   compileSdk = 36
   defaultConfig {
-    applicationId = "com.cooldown"
+    applicationId = "com.findcoolplaceswithcooldown"
     minSdk = 24
     targetSdk = 35
     versionCode = 1

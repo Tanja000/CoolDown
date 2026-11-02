@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package com.cooldown.ui.theme
+package com.findcoolplaceswithcooldown.ui.theme
 
 import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme

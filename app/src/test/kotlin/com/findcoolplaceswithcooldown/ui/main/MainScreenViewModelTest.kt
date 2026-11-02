@@ -1,8 +1,8 @@
-package com.cooldown.ui.main
+package com.findcoolplaceswithcooldown.ui.main
 
-import com.cooldown.data.CoolSpot
-import com.cooldown.data.SpotCategory
-import com.cooldown.data.TravelMode
+import com.findcoolplaceswithcooldown.data.CoolSpot
+import com.findcoolplaceswithcooldown.data.SpotCategory
+import com.findcoolplaceswithcooldown.data.TravelMode
 import junit.framework.TestCase.assertEquals
 import junit.framework.TestCase.assertTrue
 import kotlinx.coroutines.flow.first
@@ -104,7 +104,7 @@ class MainScreenViewModelTest {
   }
 
   @Test
-  fun iceCreamSupport_togglesDialogAndSetsAdFree() = runTest {
+  fun iceCreamSupport_togglesDialogAndKeepsAdsActive() = runTest {
     val viewModel = MainScreenViewModel()
     assertEquals(false, viewModel.uiState.first().isAdFree)
     assertEquals(false, viewModel.uiState.first().showIceCreamDialog)
@@ -113,10 +113,24 @@ class MainScreenViewModelTest {
     assertTrue(viewModel.uiState.first().showIceCreamDialog)
 
     viewModel.supportWithIceCream("ice_cream_medium")
-    assertTrue(viewModel.uiState.first().isAdFree)
-
-    viewModel.setShowIceCreamDialog(false)
+    // Ads remain active after donation (no ad-free promise) and dialog closes
+    assertEquals(false, viewModel.uiState.first().isAdFree)
     assertEquals(false, viewModel.uiState.first().showIceCreamDialog)
+  }
+
+  @Test
+  fun gdprConsent_togglesPersonalizedAdsAndDialog() = runTest {
+    val viewModel = MainScreenViewModel()
+    assertEquals(true, viewModel.uiState.first().personalizedAdsConsent)
+
+    viewModel.setPersonalizedAdsConsent(false)
+    assertEquals(false, viewModel.uiState.first().personalizedAdsConsent)
+    assertTrue(viewModel.uiState.first().hasSeenConsentBanner)
+
+    viewModel.setShowLegalPrivacyDialog(true)
+    assertTrue(viewModel.uiState.first().showLegalPrivacyDialog)
+    viewModel.setShowLegalPrivacyDialog(false)
+    assertEquals(false, viewModel.uiState.first().showLegalPrivacyDialog)
   }
 
   @Test

@@ -1,4 +1,4 @@
-package com.cooldown.ui.main
+package com.findcoolplaceswithcooldown.ui.main
 
 import android.Manifest
 import android.annotation.SuppressLint
@@ -131,12 +131,12 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation3.runtime.NavKey
-import com.cooldown.data.AppLanguage
-import com.cooldown.data.BoundingBoxCoords
-import com.cooldown.data.CoolSpot
-import com.cooldown.data.RouteInfo
-import com.cooldown.data.SpotCategory
-import com.cooldown.data.TravelMode
+import com.findcoolplaceswithcooldown.data.AppLanguage
+import com.findcoolplaceswithcooldown.data.BoundingBoxCoords
+import com.findcoolplaceswithcooldown.data.CoolSpot
+import com.findcoolplaceswithcooldown.data.RouteInfo
+import com.findcoolplaceswithcooldown.data.SpotCategory
+import com.findcoolplaceswithcooldown.data.TravelMode
 import java.io.File
 import org.osmdroid.config.Configuration
 import org.osmdroid.events.MapEventsReceiver
@@ -981,13 +981,26 @@ fun CoolDownMapScreen(
         }
       }
 
+      // First-launch GDPR / DSGVO Consent Banner
+      if (!uiState.hasSeenConsentBanner && uiState.selectedSpot == null) {
+        Spacer(modifier = Modifier.height(6.dp))
+        GdprConsentBanner(
+          lang = lang,
+          onAcceptPersonalized = { viewModel.dismissConsentBanner(acceptPersonalized = true) },
+          onAcceptNonPersonalized = { viewModel.dismissConsentBanner(acceptPersonalized = false) },
+          onOpenPrivacyDetails = { viewModel.setShowLegalPrivacyDialog(true) },
+        )
+      }
+
       // Subtle Ad Banner (when not ad-free and no spot detail card is open)
       if (uiState.selectedSpot == null && !uiState.isAdFree) {
         Spacer(modifier = Modifier.height(6.dp))
         SubtleAdBanner(
           isAdFree = uiState.isAdFree,
+          personalizedAds = uiState.personalizedAdsConsent,
           lang = lang,
           onOpenSupportDialog = { viewModel.setShowIceCreamDialog(true) },
+          onOpenPrivacySettings = { viewModel.setShowLegalPrivacyDialog(true) },
         )
       }
 
@@ -1022,6 +1035,12 @@ fun CoolDownMapScreen(
               )
               // Close detail card so route stays clearly visible on map!
               viewModel.closeDetailCardKeepRoute()
+              // Trigger non-intrusive frequency-capped interstitial check (max once every 3 mins / every 3 actions)
+              InterstitialAdManager.onRouteAction(
+                context = context,
+                personalizedAds = uiState.personalizedAdsConsent,
+                forceIfCooldownPassed = false,
+              )
             },
             onRemoveRoute = {
               if (uiState.activeRoute?.isMultiStop == true) {
@@ -1159,14 +1178,20 @@ fun CoolDownMapScreen(
         mapViewRef?.controller?.animateTo(GeoPoint(spot.lat, spot.lon))
       },
       onOpenInGoogleMaps = {
-        openRouteInGoogleMaps(
+        InterstitialAdManager.onRouteAction(
           context = context,
-          originLat = uiState.userLat,
-          originLon = uiState.userLon,
-          spot = route.targetSpot,
-          travelMode = uiState.selectedTravelMode,
-          activeRoute = route,
-        )
+          personalizedAds = uiState.personalizedAdsConsent,
+          forceIfCooldownPassed = true,
+        ) {
+          openRouteInGoogleMaps(
+            context = context,
+            originLat = uiState.userLat,
+            originLon = uiState.userLon,
+            spot = route.targetSpot,
+            travelMode = uiState.selectedTravelMode,
+            activeRoute = route,
+          )
+        }
       },
     )
   }
@@ -1175,6 +1200,10 @@ fun CoolDownMapScreen(
   if (uiState.showLegendDialog) {
     OverpassLegendDialog(
       lang = lang,
+      onOpenLegalPrivacy = {
+        viewModel.setShowLegendDialog(false)
+        viewModel.setShowLegalPrivacyDialog(true)
+      },
       onDismiss = { viewModel.setShowLegendDialog(false) },
     )
   }
@@ -1202,6 +1231,16 @@ fun CoolDownMapScreen(
       lang = lang,
       onDismiss = { viewModel.setShowIceCreamDialog(false) },
       onSupportSuccess = { tier -> viewModel.supportWithIceCream(tier) },
+    )
+  }
+
+  // 8. Legal, Privacy & GDPR Ad Settings Dialog
+  if (uiState.showLegalPrivacyDialog) {
+    LegalPrivacyDialog(
+      lang = lang,
+      personalizedAdsConsent = uiState.personalizedAdsConsent,
+      onTogglePersonalizedAds = { consent -> viewModel.setPersonalizedAdsConsent(consent) },
+      onDismiss = { viewModel.setShowLegalPrivacyDialog(false) },
     )
   }
 }
@@ -1740,6 +1779,7 @@ private fun SpotListItemCard(
 @Composable
 private fun OverpassLegendDialog(
   lang: AppLanguage,
+  onOpenLegalPrivacy: () -> Unit,
   onDismiss: () -> Unit,
 ) {
   AlertDialog(
@@ -1753,7 +1793,7 @@ private fun OverpassLegendDialog(
         )
         Spacer(modifier = Modifier.width(8.dp))
         Text(
-          text = if (lang == AppLanguage.EN) "CoolDown – Categories" else "CoolDown – Kühle Orte & Wasser",
+          text = if (lang == AppLanguage.EN) "CoolDown – Categories & Info" else "CoolDown – Kategorien & Info",
           style = MaterialTheme.typography.titleMedium,
         )
       }
@@ -1802,6 +1842,23 @@ private fun OverpassLegendDialog(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
               )
             }
+          }
+        }
+        item {
+          HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+          OutlinedButton(
+            onClick = onOpenLegalPrivacy,
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(12.dp),
+          ) {
+            Text(
+              text = if (lang == AppLanguage.EN) {
+                "Privacy Policy, Licenses & Legal"
+              } else {
+                "Datenschutz, Lizenzen & Rechtliches"
+              },
+              fontWeight = FontWeight.SemiBold,
+            )
           }
         }
       }

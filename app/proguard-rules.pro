@@ -27,5 +27,4 @@
 -dontwarn com.google.android.gms.ads.**
 
 # App internal classes
--keep class com.cooldown.data.** { *; }
--keep class com.cooldown.ui.** { *; }
+-keep class com.findcoolplaceswithcooldown.** { *; }

@@ -1,4 +1,4 @@
-package com.cooldown.data
+package com.findcoolplaceswithcooldown.data
 
 import kotlin.math.atan2
 import kotlin.math.cos

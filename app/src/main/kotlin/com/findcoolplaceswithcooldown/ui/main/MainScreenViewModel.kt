@@ -1,17 +1,17 @@
-package com.cooldown.ui.main
+package com.findcoolplaceswithcooldown.ui.main
 
 import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.cooldown.data.AppLanguage
-import com.cooldown.data.BoundingBoxCoords
-import com.cooldown.data.CoolSpot
-import com.cooldown.data.CoolSpotCacheManager
-import com.cooldown.data.NominatimResult
-import com.cooldown.data.OverpassService
-import com.cooldown.data.RouteInfo
-import com.cooldown.data.SpotCategory
-import com.cooldown.data.TravelMode
+import com.findcoolplaceswithcooldown.data.AppLanguage
+import com.findcoolplaceswithcooldown.data.BoundingBoxCoords
+import com.findcoolplaceswithcooldown.data.CoolSpot
+import com.findcoolplaceswithcooldown.data.CoolSpotCacheManager
+import com.findcoolplaceswithcooldown.data.NominatimResult
+import com.findcoolplaceswithcooldown.data.OverpassService
+import com.findcoolplaceswithcooldown.data.RouteInfo
+import com.findcoolplaceswithcooldown.data.SpotCategory
+import com.findcoolplaceswithcooldown.data.TravelMode
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -46,7 +46,10 @@ data class CoolDownUiState(
   val showMapStyleDialog: Boolean = false,
   val language: AppLanguage = AppLanguage.DE,
   val isAdFree: Boolean = false,
+  val personalizedAdsConsent: Boolean = true,
+  val hasSeenConsentBanner: Boolean = true,
   val showIceCreamDialog: Boolean = false,
+  val showLegalPrivacyDialog: Boolean = false,
 ) {
   val isAllCategoriesSelected: Boolean
     get() = activeCategories.size == SpotCategory.entries.size
@@ -100,8 +103,16 @@ class MainScreenViewModel(
     if (cacheManager == null) {
       cacheManager = CoolSpotCacheManager(context.applicationContext)
       val savedLang = cacheManager?.getSavedLanguage() ?: AppLanguage.DE
-      val adFree = cacheManager?.isAdFree() ?: false
-      _uiState.update { it.copy(language = savedLang, isAdFree = adFree) }
+      val personalizedConsent = cacheManager?.getPersonalizedAdsConsent() ?: true
+      val seenConsent = cacheManager?.hasSeenConsentBanner() ?: false
+      _uiState.update {
+        it.copy(
+          language = savedLang,
+          isAdFree = false,
+          personalizedAdsConsent = personalizedConsent,
+          hasSeenConsentBanner = seenConsent,
+        )
+      }
     }
     if (hasInitializedCache) {
       return _uiState.value.mapCenterLat to _uiState.value.mapCenterLon
@@ -179,14 +190,33 @@ class MainScreenViewModel(
     _uiState.update { it.copy(showIceCreamDialog = show) }
   }
 
+  fun setShowLegalPrivacyDialog(show: Boolean) {
+    _uiState.update { it.copy(showLegalPrivacyDialog = show) }
+  }
+
+  fun setPersonalizedAdsConsent(consent: Boolean) {
+    cacheManager?.setPersonalizedAdsConsent(consent)
+    _uiState.update {
+      it.copy(
+        personalizedAdsConsent = consent,
+        hasSeenConsentBanner = true,
+      )
+    }
+  }
+
+  fun dismissConsentBanner(acceptPersonalized: Boolean) {
+    setPersonalizedAdsConsent(acceptPersonalized)
+  }
+
+  /**
+   * Verarbeitet eine Eis-Spende (Werbung bleibt weiterhin aktiv, wie gewünscht).
+   */
   fun supportWithIceCream(tier: String) {
-    cacheManager?.setAdFree(true)
-    _uiState.update { it.copy(isAdFree = true) }
+    _uiState.update { it.copy(showIceCreamDialog = false) }
   }
 
   fun restorePurchases() {
-    val adFree = cacheManager?.isAdFree() ?: false
-    _uiState.update { it.copy(isAdFree = adFree) }
+    // One-time consumable donations do not disable ads
   }
 
   fun onMapViewportChanged(

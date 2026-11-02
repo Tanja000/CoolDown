@@ -1,4 +1,4 @@
-package com.cooldown
+package com.findcoolplaceswithcooldown
 
 import androidx.navigation3.runtime.NavKey
 import kotlinx.serialization.Serializable

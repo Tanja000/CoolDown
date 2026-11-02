@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package com.cooldown.ui.theme
+package com.findcoolplaceswithcooldown.ui.theme
 
 import androidx.compose.ui.graphics.Color
 

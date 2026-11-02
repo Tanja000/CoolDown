@@ -1,4 +1,4 @@
-package com.cooldown.data
+package com.findcoolplaceswithcooldown.data
 
 import android.content.Context
 import java.io.File
@@ -43,6 +43,25 @@ class CoolSpotCacheManager(context: Context) {
 
   fun setAdFree(adFree: Boolean) {
     prefs.edit().putBoolean("is_ad_free", adFree).apply()
+  }
+
+  fun getPersonalizedAdsConsent(): Boolean {
+    return prefs.getBoolean("personalized_ads_consent", true)
+  }
+
+  fun setPersonalizedAdsConsent(consent: Boolean) {
+    prefs.edit()
+      .putBoolean("personalized_ads_consent", consent)
+      .putBoolean("has_seen_consent_banner", true)
+      .apply()
+  }
+
+  fun hasSeenConsentBanner(): Boolean {
+    return prefs.getBoolean("has_seen_consent_banner", false)
+  }
+
+  fun setHasSeenConsentBanner(seen: Boolean) {
+    prefs.edit().putBoolean("has_seen_consent_banner", seen).apply()
   }
 
   fun saveCache(

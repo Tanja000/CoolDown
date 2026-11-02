@@ -1,14 +1,14 @@
-package com.cooldown.ui.main
+package com.findcoolplaceswithcooldown.ui.main
 
 import androidx.activity.ComponentActivity
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithText
-import com.cooldown.data.SpotCategory
+import com.findcoolplaceswithcooldown.data.SpotCategory
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 
-/** UI tests for [com.cooldown.ui.main.MainScreen]. */
+/** UI tests for [com.findcoolplaceswithcooldown.ui.main.MainScreen]. */
 class MainScreenTest {
 
   @get:Rule val composeTestRule = createAndroidComposeRule<ComponentActivity>()

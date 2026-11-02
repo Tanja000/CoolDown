@@ -1,4 +1,4 @@
-package com.cooldown.data
+package com.findcoolplaceswithcooldown.data
 
 import java.io.BufferedReader
 import java.io.InputStreamReader

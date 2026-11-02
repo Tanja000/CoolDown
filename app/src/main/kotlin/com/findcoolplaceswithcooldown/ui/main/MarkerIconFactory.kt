@@ -1,4 +1,4 @@
-package com.cooldown.ui.main
+package com.findcoolplaceswithcooldown.ui.main
 
 import android.content.Context
 import android.graphics.Bitmap
@@ -8,7 +8,7 @@ import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
-import com.cooldown.data.SpotCategory
+import com.findcoolplaceswithcooldown.data.SpotCategory
 
 object MarkerIconFactory {
   private val cache = mutableMapOf<Pair<SpotCategory, Boolean>, Drawable>()
