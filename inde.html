@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Datenschutzerklärung / Privacy Policy – CoolDown</title>
+  <style>
+    :root {
+      --primary: #0077e6;
+      --primary-dark: #0d47a1;
+      --bg: #f0f6fc;
+      --card-bg: #ffffff;
+      --text: #1a1c1e;
+      --text-muted: #4b5563;
+      --border: #e2e8f0;
+    }
+    * {
+      box-sizing: border-box;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      max-width: 860px;
+      margin: 0 auto;
+      padding: 24px 16px 48px;
+      line-height: 1.65;
+      color: var(--text);
+      background-color: var(--bg);
+    }
+    .header-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 12px;
+      background: var(--card-bg);
+      padding: 16px 24px;
+      border-radius: 16px;
+      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.06);
+      margin-bottom: 20px;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 1.35rem;
+      font-weight: 800;
+      color: var(--primary-dark);
+    }
+    .lang-switch {
+      display: inline-flex;
+      background: #e2e8f0;
+      border-radius: 999px;
+      padding: 4px;
+      gap: 4px;
+    }
+    .lang-btn {
+      border: none;
+      background: transparent;
+      padding: 8px 16px;
+      border-radius: 999px;
+      font-size: 0.9rem;
+      font-weight: 700;
+      cursor: pointer;
+      color: var(--text-muted);
+      transition: all 0.2s ease;
+    }
+    .lang-btn.active {
+      background: var(--primary);
+      color: #ffffff;
+      box-shadow: 0 2px 6px rgba(0, 119, 230, 0.3);
+    }
+    .card {
+      background: var(--card-bg);
+      border-radius: 18px;
+      padding: 28px;
+      box-shadow: 0 2px 12px rgba(0, 0, 0, 0.05);
+      margin-bottom: 24px;
+    }
+    h1 {
+      color: var(--primary-dark);
+      margin-top: 0;
+      font-size: 1.75rem;
+    }
+    h2 {
+      color: var(--primary);
+      margin-top: 28px;
+      margin-bottom: 10px;
+      font-size: 1.2rem;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 6px;
+    }
+    p, li {
+      color: var(--text);
+    }
+    ul {
+      padding-left: 20px;
+    }
+    li {
+      margin-bottom: 6px;
+    }
+    code {
+      background: #e2e8f0;
+      padding: 2px 6px;
+      border-radius: 5px;
+      font-size: 0.9em;
+    }
+    .contact-box {
+      background: #f8fafc;
+      border-left: 4px solid var(--primary);
+      padding: 14px 18px;
+      border-radius: 8px;
+      margin: 12px 0;
+    }
+    a {
+      color: var(--primary);
+      text-decoration: none;
+    }
+    a:hover {
+      text-decoration: underline;
+    }
+    .hidden {
+      display: none;
+    }
+    footer {
+      text-align: center;
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      margin-top: 16px;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="header-bar">
+    <div class="brand">
+      <span>❄️ CoolDown</span>
+    </div>
+    <div class="lang-switch" role="group" aria-label="Language switch">
+      <button id="btn-de" class="lang-btn active" onclick="setLanguage('de')">🇩🇪 Deutsch</button>
+      <button id="btn-en" class="lang-btn" onclick="setLanguage('en')">🇬🇧 English</button>
+    </div>
+  </div>
+
+  <!-- ==================== DEUTSCHE FASSUNG ==================== -->
+  <div id="content-de" class="card">
+    <h1>Datenschutzerklärung &amp; Impressum</h1>
+    <p>
+      <strong>App-Name:</strong> CoolDown – Kühle Orte &amp; Wasser<br />
+      <strong>Paketname (Application ID):</strong> <code>com.findcoolplaceswithcooldown</code><br />
+      <strong>Stand:</strong> November 2026
+    </p>
+
+    <h2>1. Verantwortliche Stelle &amp; Kontakt (Impressum gem. § 5 DDG)</h2>
+    <p>Verantwortlich für die Datenverarbeitung im Zusammenhang mit der Android-App <strong>CoolDown</strong> (<code>com.findcoolplaceswithcooldown</code>) im Sinne der Datenschutz-Grundverordnung (DSGVO) ist:</p>
+    <div class="contact-box">
+      <strong>Tanja Reize</strong><br />
+      Wilhelm-Busch Str. 41<br />
+      81477 München<br />
+      Deutschland<br /><br />
+      <strong>E-Mail:</strong> <a href="mailto:tanjareize@web.de">tanjareize@web.de</a>
+    </div>
+
+    <h2>2. Grundsätze der Datenverarbeitung</h2>
+    <p>Der Schutz Ihrer personenbezogenen Daten hat für uns höchste Priorität. Die App <strong>CoolDown</strong> erfordert <strong>keine Registrierung</strong> und kein Nutzerkonto. Wir betreiben keine eigenen Server zur Speicherung von Nutzerprofilen oder Bewegungsdaten.</p>
+
+    <h2>3. Standortdaten (GPS / Netzwerkstandort)</h2>
+    <p>Die App fragt optional die Berechtigung zum Zugriff auf den Gerätestandort im Vordergrund an (<code>android.permission.ACCESS_FINE_LOCATION</code> und <code>android.permission.ACCESS_COARSE_LOCATION</code>).</p>
+    <ul>
+      <li><strong>Zweck der Verarbeitung:</strong> Ihr Standort wird ausschließlich verwendet, um Ihre eigene Position auf der Karte darzustellen, kühle Orte, Trinkwasserbrunnen, Eisdielen, Bademöglichkeiten und Schattenplätze in Ihrer unmittelbaren Umgebung zu finden sowie Fuß-, Rad- und Autorouten zu berechnen.</li>
+      <li><strong>Keine Hintergrund-Ortung &amp; keine Speicherung:</strong> Der Standort wird nur ermittelt, während Sie die App aktiv nutzen. Ihre GPS-Koordinaten werden niemals auf Servern der Entwicklerin gespeichert oder an Datenhändler weitergegeben.</li>
+      <li><strong>Rechtsgrundlage:</strong> Art. 6 Abs. 1 lit. a DSGVO (Ihre Einwilligung über den Android-Berechtigungsdialog) sowie Art. 6 Abs. 1 lit. b DSGVO (Bereitstellung der angeforderten App-Funktion). Sie können die Standortberechtigung jederzeit in den Android-Systemeinstellungen widerrufen.</li>
+    </ul>
+
+    <h2>4. Karten-, Such- und Routingdienste (OpenStreetMap)</h2>
+    <p>Um Ihnen interaktive Karten, Ortssuchen und Routenberechnungen kostenlos zur Verfügung zu stellen, lädt die App Daten direkt über HTTPS von öffentlichen Open-Data-Servern des OpenStreetMap-Ökosystems:</p>
+    <ul>
+      <li><strong>Kartenkacheln (Map Tiles):</strong> <code>tile.openstreetmap.org</code>, <code>tile.openstreetmap.de</code>, <code>basemaps.cartocdn.com</code>, <code>tile.opentopomap.org</code></li>
+      <li><strong>Suche nach kühlen Orten &amp; Trinkwasser (POIs):</strong> Overpass API (<code>overpass-api.de</code>, <code>overpass.kumi.systems</code>)</li>
+      <li><strong>Adress- und Ortssuche (Geocoding):</strong> Komoot Photon (<code>photon.komoot.io</code>) sowie Nominatim (<code>nominatim.openstreetmap.org</code>)</li>
+      <li><strong>Routenberechnung (Fuß, Fahrrad, Auto):</strong> OSRM / FOSSGIS e.V. (<code>routing.openstreetmap.de</code>, <code>router.project-osrm.org</code>)</li>
+    </ul>
+    <p>Bei diesen Abrufen werden technisch bedingt Ihre IP-Adresse sowie der aktuell sichtbare Kartenausschnitt bzw. die Start- und Zielkoordinaten der gewählten Route an den jeweiligen Kartendienst übertragen (Rechtsgrundlage: Art. 6 Abs. 1 lit. b DSGVO). Weitere Informationen zum Datenschutz der OpenStreetMap Foundation finden Sie unter <a href="https://osmfoundation.org/wiki/Privacy_Policy" target="_blank" rel="noopener">https://osmfoundation.org/wiki/Privacy_Policy</a>.</p>
+
+    <h2>5. Werbung (Google AdMob)</h2>
+    <p>Um die App kostenlos anbieten und weiterentwickeln zu können, blendet CoolDown Werbeanzeigen über den Dienst <strong>Google AdMob</strong> ein (Anbieter in der EU/EWR: Google Ireland Limited, Gordon House, Barrow Street, Dublin 4, Irland).</p>
+    <ul>
+      <li><strong>Verarbeitete Daten:</strong> Google AdMob kann die Werbe-ID Ihres Endgeräts (<code>com.google.android.gms.permission.AD_ID</code>), Ihre ungefähre IP-Adresse, technische Geräteinformationen sowie Interaktionen mit eingeblendeten Anzeigen verarbeiten, um Werbung auszuspielen, die Anzeigenleistung zu messen und Klickbetrug zu verhindern.</li>
+      <li><strong>Wahlfreiheit &amp; Widerruf (DSGVO):</strong> Sie können beim ersten App-Start sowie jederzeit nachträglich innerhalb der App (über das Info-Symbol <strong>ⓘ</strong> &rarr; <em>Datenschutz, Lizenzen &amp; Rechtliches</em> oder direkt über den Link <em>Anzeige • Datenschutz</em> am Werbebanner) frei entscheiden, ob Sie <strong>personalisierte Werbung</strong> zulassen oder ausschließlich <strong>unpersonalisierte Werbung (<code>npa=1</code>)</strong> erhalten möchten. Zudem können Sie die Werbe-ID jederzeit in den Android-Systemeinstellungen unter <em>Google &rarr; Werbung</em> zurücksetzen oder löschen.</li>
+      <li><strong>Rechtsgrundlage:</strong> Art. 6 Abs. 1 lit. a DSGVO (Einwilligung für personalisierte Werbung) bzw. Art. 6 Abs. 1 lit. f DSGVO (berechtigtes Interesse an der Finanzierung der kostenlosen App durch unpersonalisierte Anzeigen).</li>
+      <li><strong>Datenschutzerklärung von Google:</strong> <a href="https://policies.google.com/privacy" target="_blank" rel="noopener">https://policies.google.com/privacy</a></li>
+    </ul>
+
+    <h2>6. Freiwillige Spenden &amp; In-App-Käufe (Google Play Billing)</h2>
+    <p>Im Bereich <em>„Spendiere ein Eis 🍦"</em> bietet die App die Möglichkeit, die Weiterentwicklung durch freiwillige Einmal-Zahlungen (z. B. 0,99 €, 1,99 €, 3,99 € oder einen frei wählbaren Betrag) zu unterstützen.</p>
+    <ul>
+      <li>Die gesamte Zahlungsabwicklung erfolgt direkt und verschlüsselt über <strong>Google Play Billing</strong> (Google Ireland Limited).</li>
+      <li>Wir erhalten von Google lediglich eine anonymisierte Bestätigung über die erfolgreiche Transaktion (Produkt-ID / Kauf-Token), jedoch zu keinem Zeitpunkt Zugriff auf Ihren Namen, Ihre Anschrift oder Ihre Bank-, PayPal- oder Kreditkartendaten.</li>
+    </ul>
+
+    <h2>7. Lokale Speicherung auf Ihrem Gerät (Cache &amp; Einstellungen)</h2>
+    <p>Die App speichert Ihre gewählte Spracheinstellung (Deutsch/Englisch), Ihre Datenschutz-Präferenz für Werbeanzeigen sowie den zuletzt geladenen Kartenausschnitt lokal im geschützten App-Speicher Ihres Smartphones. Diese Daten verbleiben ausschließlich auf Ihrem Gerät und werden automatisch gelöscht, sobald Sie den App-Speicher leeren oder die App deinstallieren.</p>
+
+    <h2>8. Urheberrechts- und Lizenzhinweise (OpenStreetMap ODbL)</h2>
+    <p>Die in der App verwendeten Karten- und Standortdaten stammen von <strong>© OpenStreetMap-Mitwirkenden (OpenStreetMap contributors)</strong> und stehen unter der Lizenz <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">Open Data Commons Open Database License (ODbL)</a>.</p>
+
+    <h2>9. Ihre Betroffenenrechte (DSGVO) &amp; Datenlöschung</h2>
+    <p>Sie haben im Rahmen der geltenden gesetzlichen Bestimmungen (Art. 15–21 DSGVO) jederzeit das Recht auf Auskunft, Berichtigung, Löschung, Einschränkung der Verarbeitung sowie Widerspruch. Da wir keinerlei personenbezogene Nutzerkonten oder Serverdatenbanken führen, können Sie sämtliche lokal in der App gespeicherten Daten jederzeit selbstständig löschen, indem Sie die App deinstallieren oder in den Android-Einstellungen unter <em>Apps &rarr; CoolDown &rarr; Speicher</em> die Daten löschen. Bei Fragen erreichen Sie uns jederzeit unter <a href="mailto:tanjareize@web.de">tanjareize@web.de</a>.</p>
+  </div>
+
+  <!-- ==================== ENGLISH VERSION ==================== -->
+  <div id="content-en" class="card hidden">
+    <h1>Privacy Policy &amp; Legal Notice</h1>
+    <p>
+      <strong>App Name:</strong> CoolDown – Cool Places &amp; Drinking Water<br />
+      <strong>Package Name (Application ID):</strong> <code>com.findcoolplaceswithcooldown</code><br />
+      <strong>Last Updated:</strong> November 2026
+    </p>
+
+    <h2>1. Controller &amp; Contact Information</h2>
+    <p>The controller responsible for data processing in connection with the Android application <strong>CoolDown</strong> (<code>com.findcoolplaceswithcooldown</code>) under the General Data Protection Regulation (GDPR) is:</p>
+    <div class="contact-box">
+      <strong>Tanja Reize</strong><br />
+      <strong>Email:</strong> <a href="mailto:tanjareize@web.de">tanjareize@web.de</a>
+    </div>
+
+    <h2>2. General Principles of Data Processing</h2>
+    <p>Protecting your privacy is important to us. <strong>CoolDown</strong> requires <strong>no user registration</strong> and no user account. We do not operate our own servers to store user profiles or location histories.</p>
+
+    <h2>3. Location Data (GPS / Network Location)</h2>
+    <p>The app optionally requests foreground location permissions (<code>android.permission.ACCESS_FINE_LOCATION</code> and <code>android.permission.ACCESS_COARSE_LOCATION</code>).</p>
+    <ul>
+      <li><strong>Purpose of Processing:</strong> Your device location is used exclusively to show your current position on the map, find nearby cool places, drinking water fountains, ice cream shops, bathing spots, and shaded areas, and calculate walking, cycling, or driving routes.</li>
+      <li><strong>No Background Tracking &amp; No Server Storage:</strong> Location data is only accessed while the app is open in the foreground. Your GPS coordinates are never stored on developer servers or sold to third parties.</li>
+      <li><strong>Legal Basis:</strong> Art. 6(1)(a) GDPR (your consent via the Android permission prompt) and Art. 6(1)(b) GDPR (providing the requested app functionality). You can revoke location permissions at any time in your Android device settings.</li>
+    </ul>
+
+    <h2>4. Map, Search &amp; Routing Services (OpenStreetMap)</h2>
+    <p>To display interactive map tiles, search addresses, and calculate routes, the app connects directly via HTTPS to public Open-Data services of the OpenStreetMap ecosystem:</p>
+    <ul>
+      <li><strong>Map Tiles:</strong> <code>tile.openstreetmap.org</code>, <code>tile.openstreetmap.de</code>, <code>basemaps.cartocdn.com</code>, <code>tile.opentopomap.org</code></li>
+      <li><strong>POI Search (Cool Spots &amp; Water):</strong> Overpass API (<code>overpass-api.de</code>, <code>overpass.kumi.systems</code>)</li>
+      <li><strong>Location &amp; Address Search (Geocoding):</strong> Komoot Photon (<code>photon.komoot.io</code>) and Nominatim (<code>nominatim.openstreetmap.org</code>)</li>
+      <li><strong>Route Calculation (Walking, Cycling, Driving):</strong> OSRM / FOSSGIS e.V. (<code>routing.openstreetmap.de</code>, <code>router.project-osrm.org</code>)</li>
+    </ul>
+    <p>When making these requests, your IP address and the currently visible map bounding box or route coordinates are technically transmitted to the respective service provider (Legal basis: Art. 6(1)(b) GDPR). For more details, please refer to the OpenStreetMap Foundation Privacy Policy: <a href="https://osmfoundation.org/wiki/Privacy_Policy" target="_blank" rel="noopener">https://osmfoundation.org/wiki/Privacy_Policy</a>.</p>
+
+    <h2>5. Advertising (Google AdMob)</h2>
+    <p>To keep CoolDown free of charge, we display advertisements via <strong>Google AdMob</strong> (provided in the EU/EEA by Google Ireland Limited, Gordon House, Barrow Street, Dublin 4, Ireland).</p>
+    <ul>
+      <li><strong>Processed Data:</strong> Google AdMob may process your device's Advertising ID (<code>com.google.android.gms.permission.AD_ID</code>), approximate IP address, technical device information, and ad interactions to serve ads, measure ad performance, and prevent fraud.</li>
+      <li><strong>Your Choice &amp; Opt-Out (GDPR):</strong> On first launch and at any time within the app (via the Info icon <strong>ⓘ</strong> &rarr; <em>Privacy Policy, Licenses &amp; Legal</em> or via the <em>Ad • Privacy</em> link on the banner), you can freely toggle between <strong>personalized ads</strong> and <strong>non-personalized ads (<code>npa=1</code>)</strong>. You can also reset or delete your Advertising ID at any time in your Android system settings under <em>Google &rarr; Ads</em>.</li>
+      <li><strong>Google Privacy Policy:</strong> <a href="https://policies.google.com/privacy" target="_blank" rel="noopener">https://policies.google.com/privacy</a></li>
+    </ul>
+
+    <h2>6. Voluntary Donations &amp; In-App Purchases (Google Play Billing)</h2>
+    <p>In the <em>"Spendiere ein Eis 🍦"</em> section, users can voluntarily support app development via one-time in-app purchases (e.g., €0.99, €1.99, €3.99, or a custom amount).</p>
+    <ul>
+      <li>All payment transactions are processed directly and securely by <strong>Google Play Billing</strong> (Google Ireland Limited).</li>
+      <li>We only receive an anonymized confirmation token from Google Play and never have access to your name, billing address, bank account, or credit card details.</li>
+    </ul>
+
+    <h2>7. Local Device Storage (Cache &amp; Preferences)</h2>
+    <p>The app stores your selected language (German/English), your ad personalization preference, and the most recently loaded map spots locally on your device. This data remains strictly on your device and is automatically erased when you clear the app storage or uninstall the app.</p>
+
+    <h2>8. Copyright &amp; Open-Data Attribution (ODbL)</h2>
+    <p>Map data and point-of-interest information are provided by <strong>© OpenStreetMap contributors</strong> and licensed under the <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">Open Data Commons Open Database License (ODbL)</a>.</p>
+
+    <h2>9. Your Rights &amp; Data Deletion</h2>
+    <p>Under applicable data protection laws (GDPR), you have the right to access, rectification, erasure, restriction of processing, and objection. Because we do not maintain user accounts or server databases, you can delete all locally stored app data at any time by clearing the app storage in your Android settings or uninstalling CoolDown. If you have any questions regarding privacy, please contact us at <a href="mailto:tanjareize@web.de">tanjareize@web.de</a>.</p>
+  </div>
+
+  <footer>
+    &copy; 2026 CoolDown (<code>com.findcoolplaceswithcooldown</code>) &bull; <a href="mailto:tanjareize@web.de">tanjareize@web.de</a>
+  </footer>
+
+  <script>
+    function setLanguage(lang) {
+      var deCard = document.getElementById('content-de');
+      var enCard = document.getElementById('content-en');
+      var btnDe = document.getElementById('btn-de');
+      var btnEn = document.getElementById('btn-en');
+
+      if (lang === 'en') {
+        deCard.classList.add('hidden');
+        enCard.classList.remove('hidden');
+        btnDe.classList.remove('active');
+        btnEn.classList.add('active');
+        document.documentElement.lang = 'en';
+      } else {
+        enCard.classList.add('hidden');
+        deCard.classList.remove('hidden');
+        btnEn.classList.remove('active');
+        btnDe.classList.add('active');
+        document.documentElement.lang = 'de';
+      }
+    }
+
+    // Automatically support ?lang=en URL parameter for international Play Store links
+    (function () {
+      var params = new URLSearchParams(window.location.search);
+      if (params.get('lang') === 'en') {
+        setLanguage('en');
+      }
+    })();
+  </script>
+</body>
+</html>
