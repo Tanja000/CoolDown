@@ -10,9 +10,12 @@ android {
   defaultConfig {
     applicationId = "com.findcoolplaceswithcooldown"
     minSdk = 24
-    targetSdk = 35
-    versionCode = 1
-    versionName = "1.0"
+    targetSdk = 36
+    versionCode = 2
+    versionName = "1.1"
+    ndk {
+      debugSymbolLevel = "FULL"
+    }
   }
 
   signingConfigs {
@@ -28,9 +31,13 @@ android {
 
   buildTypes {
     release {
-      isMinifyEnabled = false
+      isMinifyEnabled = true
+      isShrinkResources = false
       signingConfig = signingConfigs.getByName("release")
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+      ndk {
+        debugSymbolLevel = "FULL"
+      }
     }
   }
   compileOptions {

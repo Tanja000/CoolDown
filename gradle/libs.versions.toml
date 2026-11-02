@@ -16,7 +16,7 @@ lifecycleViewmodelNav3 = "2.10.0"
 osmdroid = "6.1.20"
 kotlinxSerializationJson = "1.8.0"
 playServicesAds = "23.6.0"
-playBilling = "7.1.1"
+playBilling = "8.0.0"
 
 [libraries]
 androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "androidxCore" }

@@ -1,7 +1,12 @@
 # Proguard / R8 configuration for CoolDown
+# Generates mapping.txt for Google Play Console without breaking OSMDroid, AdMob, Billing or Kotlinx Serialization
 
-# Kotlinx Serialization
--keepattributes *Annotation*,Signature,InnerClasses,EnclosingMethod
+-dontoptimize
+-keepattributes *Annotation*,Signature,InnerClasses,EnclosingMethod,SourceFile,LineNumberTable
+
+# Kotlin & Kotlinx Serialization
+-keep class kotlin.** { *; }
+-keep class kotlinx.** { *; }
 -keepclassmembers class * {
     @kotlinx.serialization.Serializable <fields>;
 }
@@ -17,14 +22,15 @@
 -keep class org.osmdroid.** { *; }
 -dontwarn org.osmdroid.**
 
-# Google Play Services Ads / Mobile Ads
--keep public class com.google.android.gms.ads.** {
-   public *;
-}
--keep public class com.google.ads.** {
-   public *;
-}
--dontwarn com.google.android.gms.ads.**
+# Google Play Services Ads / Mobile Ads & Billing
+-keep class com.google.android.gms.** { *; }
+-keep class com.google.ads.** { *; }
+-keep class com.android.billingclient.** { *; }
+-dontwarn com.google.android.gms.**
+-dontwarn com.android.billingclient.**
+
+# AndroidX & Compose runtime safety
+-keep class androidx.** { *; }
 
 # App internal classes
 -keep class com.findcoolplaceswithcooldown.** { *; }
