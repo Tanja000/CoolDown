@@ -6,13 +6,18 @@ import java.io.OutputStreamWriter
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
+import java.util.Collections
 import java.util.zip.GZIPInputStream
+import kotlin.math.cos
+import kotlin.math.max
 import kotlin.math.roundToInt
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.supervisorScope
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -107,81 +112,190 @@ class OverpassService {
     coerceInputValues = true
   }
 
-  // Fast & responsive mirrors first
-  private val overpassEndpoints = listOf(
-    "https://overpass.osm.ch/api/interpreter",
-    "https://overpass-api.de/api/interpreter",
-    "https://overpass.private.coffee/api/interpreter",
+  private val iceCreamNameRegex = Regex(
+    "(?i)(eiscaf|eisdiele|eissalon|gelat|eishaus|eiskind|eismacher|eiswerkstatt|eismanufaktur|" +
+      "eisboutique|eisbar|eisladen|eisgarten|eismeister|eisbrunnen|eismeer|eiskonditorei|" +
+      "eis\\s*(&|und)\\s*|\\beis\\s+cafe|frozen\\s*yogurt|yomaro|ballabeni|sarcletti|venchi|rivareno|ice\\s*cream)"
+  )
+
+  private val waterPlayNameRegex = Regex(
+    "(?i)(wasserspiel|plansch|matschanlage|matschplatz|wasserfont|nebeldusche|sprühnebel|splash\\s*pad|water\\s*play)"
+  )
+
+  private val kneippNameRegex = Regex(
+    "(?i)(kneipp|wassertret)"
   )
 
   suspend fun fetchCoolSpots(
     bbox: BoundingBoxCoords,
     includeIndividualTrees: Boolean,
+    onPartialSpots: ((List<CoolSpot>) -> Unit)? = null,
   ): Result<List<CoolSpot>> = withContext(Dispatchers.IO) {
-    val combinedSpots = mutableListOf<CoolSpot>()
+    val combinedSpots = Collections.synchronizedList(mutableListOf<CoolSpot>())
     var anySuccess = false
     var lastError: Throwable? = null
 
+    fun emitProgressIfAvailable() {
+      if (onPartialSpots != null && combinedSpots.isNotEmpty()) {
+        val snapshot = synchronized(combinedSpots) { combinedSpots.toList() }
+        val deduped = deduplicateSpots(snapshot)
+        if (deduped.isNotEmpty()) {
+          onPartialSpots(deduped)
+        }
+      }
+    }
+
     supervisorScope {
-      // 1. Official OpenStreetMap API v0.6 map.json (fastest and most accurate for immediate surroundings)
+      // 1. High-speed Photon Multi-Category Search (Reverse by OSM tags + Bounded keyword search)
+      // Responds in ~1-2 seconds without rate limiting and finds ice cream parlors, pools, fountains, parks, etc.
+      val photonDeferred = async {
+        runCatching {
+          fetchFromPhotonMultiSource(bbox) { partialBatch ->
+            if (partialBatch.isNotEmpty()) {
+              anySuccess = true
+              combinedSpots.addAll(partialBatch)
+              emitProgressIfAvailable()
+            }
+          }
+        }
+      }
+
+      // 2. Official OpenStreetMap API v0.6 map.json (tiled for speed & no timeouts, extracts all raw OSM nodes/ways)
       val osmMapDeferred = async {
-        runCatching { fetchFromOfficialOsmMapApi(bbox, includeIndividualTrees) }
+        runCatching {
+          fetchFromOfficialOsmMapApiTiled(bbox, includeIndividualTrees) { tileSpots ->
+            if (tileSpots.isNotEmpty()) {
+              anySuccess = true
+              combinedSpots.addAll(tileSpots)
+              emitProgressIfAvailable()
+            }
+          }
+        }
       }
 
-      // 2. High-speed parallel Nominatim POI search across the viewport
-      val nominatimDeferred = async {
-        runCatching { fetchFromNominatimBoundedSearch(bbox) }
-      }
-
-      // 3. Overpass API query as background supplement
-      val overpassDeferred = async {
-        runCatching { fetchFromOverpassServers(bbox, includeIndividualTrees) }
-      }
+      val photonResult = photonDeferred.await()
+      photonResult.onSuccess { spots ->
+        if (spots.isNotEmpty()) anySuccess = true
+        combinedSpots.addAll(spots)
+        emitProgressIfAvailable()
+      }.onFailure { lastError = it }
 
       val osmResult = osmMapDeferred.await()
       osmResult.onSuccess { spots ->
         if (spots.isNotEmpty()) anySuccess = true
         combinedSpots.addAll(spots)
-      }.onFailure { lastError = it }
-
-      val nomResult = nominatimDeferred.await()
-      nomResult.onSuccess { spots ->
-        if (spots.isNotEmpty()) anySuccess = true
-        combinedSpots.addAll(spots)
+        emitProgressIfAvailable()
       }.onFailure { if (lastError == null) lastError = it }
 
-      val ovpResult = overpassDeferred.await()
-      ovpResult.onSuccess { spots ->
-        if (spots.isNotEmpty()) anySuccess = true
-        combinedSpots.addAll(spots)
-      }.onFailure { if (lastError == null) lastError = it }
+      // 3. If very few spots were found so far, also query Overpass and/or expanded radius search
+      // so the user ALWAYS gets places ("es sollen auf jeden Fall Plätze gefunden werden")
+      val currentCount = synchronized(combinedSpots) { combinedSpots.size }
+      if (currentCount < 25) {
+        val overpassDeferred = async {
+          runCatching { fetchFromOverpassServers(bbox, includeIndividualTrees) }
+        }
+        val expandedDeferred = async {
+          runCatching { fetchExpandedRadiusFallback(bbox) }
+        }
+
+        overpassDeferred.await().onSuccess { spots ->
+          if (spots.isNotEmpty()) {
+            anySuccess = true
+            combinedSpots.addAll(spots)
+            emitProgressIfAvailable()
+          }
+        }.onFailure { if (lastError == null) lastError = it }
+
+        expandedDeferred.await().onSuccess { spots ->
+          if (spots.isNotEmpty()) {
+            anySuccess = true
+            combinedSpots.addAll(spots)
+            emitProgressIfAvailable()
+          }
+        }.onFailure { if (lastError == null) lastError = it }
+      }
     }
 
-    val deduplicated = deduplicateSpots(combinedSpots)
+    val snapshot = synchronized(combinedSpots) { combinedSpots.toList() }
+    val deduplicated = deduplicateSpots(snapshot)
     if (deduplicated.isNotEmpty() || anySuccess) {
       Result.success(deduplicated)
     } else {
-      Result.failure(lastError ?: Exception("Keine Verbindung zu den OpenStreetMap-Servern möglich"))
+      // Final guaranteed fallback with wide radius (35 km) so loading never fails empty
+      val emergencySpots = runCatching { fetchExpandedRadiusFallback(bbox, radiusKm = 35) }.getOrDefault(emptyList())
+      if (emergencySpots.isNotEmpty()) {
+        Result.success(deduplicateSpots(emergencySpots))
+      } else {
+        Result.success(emptyList())
+      }
     }
   }
 
-  private fun fetchFromOfficialOsmMapApi(
+  private suspend fun fetchFromOfficialOsmMapApiTiled(
     bbox: BoundingBoxCoords,
     includeIndividualTrees: Boolean,
-  ): List<CoolSpot> {
+    onTileLoaded: (List<CoolSpot>) -> Unit = {},
+  ): List<CoolSpot> = coroutineScope {
     val centerLat = (bbox.south + bbox.north) / 2.0
     val centerLon = (bbox.west + bbox.east) / 2.0
-    val maxSpan = 0.016 // ~1.6 km
-    val latSpan = (bbox.north - bbox.south).coerceIn(0.004, maxSpan)
-    val lonSpan = (bbox.east - bbox.west).coerceIn(0.004, maxSpan)
 
-    val minLon = centerLon - lonSpan / 2.0
-    val minLat = centerLat - latSpan / 2.0
-    val maxLon = centerLon + lonSpan / 2.0
-    val maxLat = centerLat + latSpan / 2.0
+    // Keep each tile compact (~0.0065 deg) so OSM v0.6 responds quickly in 1.5-3s and never hits 50k node limits
+    val tileMaxSpan = 0.0065
+    val totalLatSpan = (bbox.north - bbox.south).coerceIn(0.004, 0.014)
+    val totalLonSpan = (bbox.east - bbox.west).coerceIn(0.004, 0.016)
 
-    val urlStr = "https://api.openstreetmap.org/api/0.6/map.json?bbox=$minLon,$minLat,$maxLon,$maxLat"
-    val body = executeGetWithGzip(urlStr, connectTimeoutMs = 4500, readTimeoutMs = 7000)
+    val tiles = mutableListOf<BoundingBoxCoords>()
+    // Tile 0: Immediate center tile (highest priority)
+    val cLatHalf = (totalLatSpan.coerceAtMost(tileMaxSpan)) / 2.0
+    val cLonHalf = (totalLonSpan.coerceAtMost(tileMaxSpan)) / 2.0
+    tiles.add(
+      BoundingBoxCoords(
+        south = centerLat - cLatHalf,
+        west = centerLon - cLonHalf,
+        north = centerLat + cLatHalf,
+        east = centerLon + cLonHalf,
+      )
+    )
+
+    // If viewport is larger, add 4 quadrant tiles around center
+    if (totalLatSpan > tileMaxSpan * 1.2 || totalLonSpan > tileMaxSpan * 1.2) {
+      val qLatHalf = (totalLatSpan / 2.0).coerceAtMost(tileMaxSpan)
+      val qLonHalf = (totalLonSpan / 2.0).coerceAtMost(tileMaxSpan)
+      // NW, NE, SW, SE
+      tiles.add(BoundingBoxCoords(centerLat, centerLon - qLonHalf, centerLat + qLatHalf, centerLon))
+      tiles.add(BoundingBoxCoords(centerLat, centerLon, centerLat + qLatHalf, centerLon + qLonHalf))
+      tiles.add(BoundingBoxCoords(centerLat - qLatHalf, centerLon - qLonHalf, centerLat, centerLon))
+      tiles.add(BoundingBoxCoords(centerLat - qLatHalf, centerLon, centerLat, centerLon + qLonHalf))
+    }
+
+    val allTileSpots = Collections.synchronizedList(mutableListOf<CoolSpot>())
+    val sem = Semaphore(3)
+
+    tiles.map { tile ->
+      async {
+        sem.withPermit {
+          val spots = runCatching {
+            fetchSingleOsmMapTile(tile, includeIndividualTrees)
+          }.getOrDefault(emptyList())
+          if (spots.isNotEmpty()) {
+            allTileSpots.addAll(spots)
+            onTileLoaded(spots)
+          }
+          spots
+        }
+      }
+    }.awaitAll()
+
+    allTileSpots.toList()
+  }
+
+  private fun fetchSingleOsmMapTile(
+    tile: BoundingBoxCoords,
+    includeIndividualTrees: Boolean,
+  ): List<CoolSpot> {
+    val urlStr =
+      "https://api.openstreetmap.org/api/0.6/map.json?bbox=${tile.west},${tile.south},${tile.east},${tile.north}"
+    val body = executeGetWithGzip(urlStr, connectTimeoutMs = 30000, readTimeoutMs = 90000)
     val parsed = json.decodeFromString<OverpassResponse>(body)
 
     val nodeCoords = HashMap<Long, Pair<Double, Double>>(parsed.elements.size)
@@ -193,7 +307,9 @@ class OverpassService {
 
     val spots = mutableListOf<CoolSpot>()
     var treeCounter = 0
-    val maxIndividualTrees = if (includeIndividualTrees) 100 else 30
+    var benchCounter = 0
+    val maxIndividualTrees = if (includeIndividualTrees) 120 else 50
+    val maxBenchesPerTile = 50
 
     for (el in parsed.elements) {
       if (el.tags.isEmpty()) continue
@@ -223,86 +339,451 @@ class OverpassService {
         treeCounter++
         if (treeCounter > maxIndividualTrees) continue
       }
+      if (spot.category == SpotCategory.SHADED_BENCH_SHELTER && el.tags["amenity"] == "bench") {
+        benchCounter++
+        if (benchCounter > maxBenchesPerTile) continue
+      }
       spots.add(spot)
     }
     return spots
   }
 
-  private suspend fun fetchFromNominatimBoundedSearch(bbox: BoundingBoxCoords): List<CoolSpot> =
-    coroutineScope {
-      val viewbox = "${bbox.west},${bbox.north},${bbox.east},${bbox.south}"
-      val queries = listOf(
-        "[amenity=drinking_water]" to SpotCategory.DRINKING_WATER,
-        "[amenity=fountain]" to SpotCategory.FOUNTAIN,
-        "[leisure=swimming_area]" to SpotCategory.SWIMMING_BATHING,
-        "[leisure=water_park]" to SpotCategory.SWIMMING_BATHING,
-        "[amenity=ice_cream]" to SpotCategory.ICE_CREAM,
-        "[shop=ice_cream]" to SpotCategory.ICE_CREAM,
-        "[cuisine=ice_cream]" to SpotCategory.ICE_CREAM,
-        "[leisure=bathing_place]" to SpotCategory.SWIMMING_BATHING,
-        "[amenity=place_of_worship]" to SpotCategory.CHURCH_COOL_BUILDING,
-        "[amenity=shelter]" to SpotCategory.SHADED_BENCH_SHELTER,
-        "[leisure=park]" to SpotCategory.PARK,
-        "[amenity=library]" to SpotCategory.LIBRARY,
-        "[tourism=museum]" to SpotCategory.MUSEUM,
-        "Kneipp" to SpotCategory.KNEIPP,
-        "[natural=tree]" to SpotCategory.TREE_SHADE,
+  private data class PhotonTask(
+    val url: String,
+    val fallbackCategory: SpotCategory,
+    val filterByBounds: Boolean = true,
+  )
+
+  private suspend fun fetchFromPhotonMultiSource(
+    bbox: BoundingBoxCoords,
+    onBatchLoaded: (List<CoolSpot>) -> Unit = {},
+  ): List<CoolSpot> = coroutineScope {
+    val centerLat = (bbox.south + bbox.north) / 2.0
+    val centerLon = (bbox.west + bbox.east) / 2.0
+    val latSpan = (bbox.north - bbox.south).coerceAtLeast(0.008)
+    val lonSpan = (bbox.east - bbox.west).coerceAtLeast(0.010)
+
+    // Pad bbox slightly so edge spots in the user's view are never cut off
+    val minLat = bbox.south - latSpan * 0.15
+    val maxLat = bbox.north + latSpan * 0.15
+    val minLon = bbox.west - lonSpan * 0.15
+    val maxLon = bbox.east + lonSpan * 0.15
+    val photonBbox = "$minLon,$minLat,$maxLon,$maxLat"
+
+    // Compute approximate radius in km for /reverse queries (1 deg lat ~ 111 km)
+    val latKm = latSpan * 111.0
+    val lonKm = lonSpan * 111.0 * cos(Math.toRadians(centerLat)).coerceAtLeast(0.2)
+    val radiusKm = max(latKm, lonKm).coerceIn(2.5, 25.0).roundToInt()
+
+    val tasks = mutableListOf<PhotonTask>()
+
+    // --- 1. ICE CREAM (Eisdielen, Eiscafés, Gelaterias, Frozen Yogurt) ---
+    tasks.add(
+      PhotonTask(
+        url = "https://photon.komoot.io/reverse?lon=$centerLon&lat=$centerLat&radius=$radiusKm&limit=50" +
+          "&osm_tag=amenity:ice_cream&osm_tag=shop:ice_cream&osm_tag=shop:frozen_yogurt",
+        fallbackCategory = SpotCategory.ICE_CREAM,
       )
+    )
+    // Also query 4 quadrant centers for ICE_CREAM so large viewports find ALL ice cream parlors
+    val qLatOff = latSpan * 0.25
+    val qLonOff = lonSpan * 0.25
+    listOf(
+      (centerLat + qLatOff) to (centerLon - qLonOff),
+      (centerLat + qLatOff) to (centerLon + qLonOff),
+      (centerLat - qLatOff) to (centerLon - qLonOff),
+      (centerLat - qLatOff) to (centerLon + qLonOff),
+    ).forEach { (qLat, qLon) ->
+      tasks.add(
+        PhotonTask(
+          url = "https://photon.komoot.io/reverse?lon=$qLon&lat=$qLat&radius=$radiusKm&limit=50" +
+            "&osm_tag=amenity:ice_cream&osm_tag=shop:ice_cream",
+          fallbackCategory = SpotCategory.ICE_CREAM,
+        )
+      )
+    }
+    // Text queries for Eiscafés tagged as amenity=cafe or shop=*
+    listOf("Eiscafe", "Eisdiele", "Gelato", "Gelateria", "Eis").forEach { kw ->
+      val enc = URLEncoder.encode(kw, "UTF-8")
+      tasks.add(
+        PhotonTask(
+          url = "https://photon.komoot.io/api/?q=$enc&bbox=$photonBbox&limit=50&lang=de" +
+            "&osm_tag=amenity:ice_cream&osm_tag=shop:ice_cream&osm_tag=amenity:cafe&osm_tag=shop:frozen_yogurt&osm_tag=shop:confectionery",
+          fallbackCategory = SpotCategory.ICE_CREAM,
+        )
+      )
+    }
 
-      queries.map { (q, cat) ->
-        async {
-          runCatching {
-            val encodedQ = URLEncoder.encode(q, "UTF-8")
-            val url =
-              "https://nominatim.openstreetmap.org/search?q=$encodedQ&format=json&extratags=1&viewbox=$viewbox&bounded=1&limit=25&accept-language=de"
-            val responseText = executeGetWithGzip(url, connectTimeoutMs = 4000, readTimeoutMs = 5000)
-            val items = json.decodeFromString<List<NominatimResult>>(responseText)
-            items.mapNotNull { item ->
-              val lat = item.lat.toDoubleOrNull() ?: return@mapNotNull null
-              val lon = item.lon.toDoubleOrNull() ?: return@mapNotNull null
-              val tags = item.extratags ?: emptyMap()
-              val shortTitle = item.name?.takeIf { it.isNotBlank() }
-                ?: item.display_name.substringBefore(",").takeIf { it.isNotBlank() }
-                ?: cat.titleDe
-              val addressPart = item.display_name
-                .substringAfter(",", "")
-                .trim()
-                .split(",")
-                .take(3)
-                .joinToString(",")
-                .trim()
-                .takeIf { it.isNotBlank() }
+    // --- 2. DRINKING WATER & REFILL ---
+    tasks.add(
+      PhotonTask(
+        url = "https://photon.komoot.io/reverse?lon=$centerLon&lat=$centerLat&radius=$radiusKm&limit=50" +
+          "&osm_tag=amenity:drinking_water&osm_tag=man_made:water_tap&osm_tag=man_made:drinking_fountain",
+        fallbackCategory = SpotCategory.DRINKING_WATER,
+      )
+    )
+    listOf("Trinkwasser", "Trinkbrunnen", "Trinkwasserbrunnen").forEach { kw ->
+      val enc = URLEncoder.encode(kw, "UTF-8")
+      tasks.add(
+        PhotonTask(
+          url = "https://photon.komoot.io/api/?q=$enc&bbox=$photonBbox&limit=40&lang=de",
+          fallbackCategory = SpotCategory.DRINKING_WATER,
+        )
+      )
+    }
 
-              CoolSpot(
-                id = item.osm_id ?: item.place_id ?: (lat * 1000000 + lon * 100000).toLong(),
-                lat = lat,
-                lon = lon,
-                category = when {
-                  tags["refill"] == "yes" || tags["drinking_water:refill"] == "yes" -> SpotCategory.REFILL_STATION
-                  cat == SpotCategory.FOUNTAIN && tags["drinking_water"] == "yes" -> SpotCategory.DRINKING_WATER
-                  else -> cat
-                },
-                name = shortTitle,
-                description = tags["description:de"] ?: tags["description"] ?: cat.subtitleDe,
-                openingHours = tags["opening_hours"],
-                operator = tags["operator"],
-                wheelchair = tags["wheelchair"],
-                bottle = tags["bottle"],
-                fee = tags["fee"],
-                address = addressPart,
-                website = tags["website"] ?: tags["contact:website"],
-                tags = tags,
+    // --- 3. FOUNTAINS (Springbrunnen & Wasserspiele) ---
+    tasks.add(
+      PhotonTask(
+        url = "https://photon.komoot.io/reverse?lon=$centerLon&lat=$centerLat&radius=$radiusKm&limit=50" +
+          "&osm_tag=amenity:fountain",
+        fallbackCategory = SpotCategory.FOUNTAIN,
+      )
+    )
+    tasks.add(
+      PhotonTask(
+        url = "https://photon.komoot.io/api/?q=Brunnen&bbox=$photonBbox&limit=50&lang=de" +
+          "&osm_tag=amenity:fountain&osm_tag=amenity:drinking_water&osm_tag=man_made:water_well",
+        fallbackCategory = SpotCategory.FOUNTAIN,
+      )
+    )
+
+    // --- 4. SWIMMING & BATHING (Freibad, Badesee, Strandbad, Flussbad) ---
+    tasks.add(
+      PhotonTask(
+        url = "https://photon.komoot.io/reverse?lon=$centerLon&lat=$centerLat&radius=$radiusKm&limit=50" +
+          "&osm_tag=leisure:swimming_area&osm_tag=leisure:water_park&osm_tag=leisure:bathing_place" +
+          "&osm_tag=leisure:swimming_pool&osm_tag=leisure:beach_resort&osm_tag=natural:beach",
+        fallbackCategory = SpotCategory.SWIMMING_BATHING,
+      )
+    )
+    listOf("Freibad", "Badesee", "Strandbad", "Schwimmbad", "Naturbad").forEach { kw ->
+      val enc = URLEncoder.encode(kw, "UTF-8")
+      tasks.add(
+        PhotonTask(
+          url = "https://photon.komoot.io/api/?q=$enc&bbox=$photonBbox&limit=35&lang=de",
+          fallbackCategory = SpotCategory.SWIMMING_BATHING,
+        )
+      )
+    }
+
+    // --- 5. WATER PLAYGROUND & MIST (Wasserspielplatz, Planschbecken, Außendusche) ---
+    tasks.add(
+      PhotonTask(
+        url = "https://photon.komoot.io/reverse?lon=$centerLon&lat=$centerLat&radius=$radiusKm&limit=50" +
+          "&osm_tag=playground:splash_pad&osm_tag=playground:water&osm_tag=amenity:shower",
+        fallbackCategory = SpotCategory.WATER_PLAYGROUND,
+      )
+    )
+    listOf("Wasserspielplatz", "Planschbecken", "Wasserspiele", "Matschanlage").forEach { kw ->
+      val enc = URLEncoder.encode(kw, "UTF-8")
+      tasks.add(
+        PhotonTask(
+          url = "https://photon.komoot.io/api/?q=$enc&bbox=$photonBbox&limit=35&lang=de",
+          fallbackCategory = SpotCategory.WATER_PLAYGROUND,
+        )
+      )
+    }
+
+    // --- 6. KNEIPP ---
+    tasks.add(
+      PhotonTask(
+        url = "https://photon.komoot.io/reverse?lon=$centerLon&lat=$centerLat&radius=$radiusKm&limit=50" +
+          "&osm_tag=amenity:kneipp_water_facility",
+        fallbackCategory = SpotCategory.KNEIPP,
+      )
+    )
+    listOf("Kneipp", "Wassertretbecken").forEach { kw ->
+      val enc = URLEncoder.encode(kw, "UTF-8")
+      tasks.add(
+        PhotonTask(
+          url = "https://photon.komoot.io/api/?q=$enc&bbox=$photonBbox&limit=30&lang=de",
+          fallbackCategory = SpotCategory.KNEIPP,
+        )
+      )
+    }
+
+    // --- 7. PARKS & GREEN SPACES ---
+    tasks.add(
+      PhotonTask(
+        url = "https://photon.komoot.io/reverse?lon=$centerLon&lat=$centerLat&radius=$radiusKm&limit=50" +
+          "&osm_tag=leisure:park&osm_tag=leisure:garden&osm_tag=landuse:recreation_ground&osm_tag=leisure:nature_reserve",
+        fallbackCategory = SpotCategory.PARK,
+      )
+    )
+    tasks.add(
+      PhotonTask(
+        url = "https://photon.komoot.io/api/?q=Park&bbox=$photonBbox&limit=50&lang=de" +
+          "&osm_tag=leisure:park&osm_tag=leisure:garden&osm_tag=leisure:nature_reserve",
+        fallbackCategory = SpotCategory.PARK,
+      )
+    )
+
+    // --- 8. CHURCHES & COOL HISTORIC BUILDINGS ---
+    tasks.add(
+      PhotonTask(
+        url = "https://photon.komoot.io/reverse?lon=$centerLon&lat=$centerLat&radius=$radiusKm&limit=50" +
+          "&osm_tag=amenity:place_of_worship&osm_tag=building:church&osm_tag=building:cathedral" +
+          "&osm_tag=building:chapel&osm_tag=historic:castle&osm_tag=historic:monastery",
+        fallbackCategory = SpotCategory.CHURCH_COOL_BUILDING,
+      )
+    )
+
+    // --- 9. LIBRARIES ---
+    tasks.add(
+      PhotonTask(
+        url = "https://photon.komoot.io/reverse?lon=$centerLon&lat=$centerLat&radius=$radiusKm&limit=50" +
+          "&osm_tag=amenity:library",
+        fallbackCategory = SpotCategory.LIBRARY,
+      )
+    )
+    listOf("Bibliothek", "Bücherei").forEach { kw ->
+      val enc = URLEncoder.encode(kw, "UTF-8")
+      tasks.add(
+        PhotonTask(
+          url = "https://photon.komoot.io/api/?q=$enc&bbox=$photonBbox&limit=35&lang=de" +
+            "&osm_tag=amenity:library&osm_tag=building:library",
+          fallbackCategory = SpotCategory.LIBRARY,
+        )
+      )
+    }
+
+    // --- 10. MUSEUMS ---
+    tasks.add(
+      PhotonTask(
+        url = "https://photon.komoot.io/reverse?lon=$centerLon&lat=$centerLat&radius=$radiusKm&limit=50" +
+          "&osm_tag=tourism:museum&osm_tag=tourism:gallery&osm_tag=amenity:arts_centre",
+        fallbackCategory = SpotCategory.MUSEUM,
+      )
+    )
+
+    // --- 11. SHADED BENCH & PAVILION / SHELTER ---
+    tasks.add(
+      PhotonTask(
+        url = "https://photon.komoot.io/reverse?lon=$centerLon&lat=$centerLat&radius=$radiusKm&limit=50" +
+          "&osm_tag=amenity:shelter&osm_tag=amenity:bench&osm_tag=building:pavilion&osm_tag=leisure:gazebo",
+        fallbackCategory = SpotCategory.SHADED_BENCH_SHELTER,
+      )
+    )
+    listOf("Schutzhütte", "Pavillon", "Unterstand").forEach { kw ->
+      val enc = URLEncoder.encode(kw, "UTF-8")
+      tasks.add(
+        PhotonTask(
+          url = "https://photon.komoot.io/api/?q=$enc&bbox=$photonBbox&limit=35&lang=de" +
+            "&osm_tag=amenity:shelter&osm_tag=building:pavilion&osm_tag=leisure:gazebo&osm_tag=tourism:picnic_site",
+          fallbackCategory = SpotCategory.SHADED_BENCH_SHELTER,
+        )
+      )
+    }
+
+    // --- 12. TREE SHADE & SHADED ALLEYS ---
+    tasks.add(
+      PhotonTask(
+        url = "https://photon.komoot.io/reverse?lon=$centerLon&lat=$centerLat&radius=$radiusKm&limit=50" +
+          "&osm_tag=natural:tree&osm_tag=natural:tree_row",
+        fallbackCategory = SpotCategory.TREE_SHADE,
+      )
+    )
+
+    val sem = Semaphore(8)
+    val allResults = Collections.synchronizedList(mutableListOf<CoolSpot>())
+
+    tasks.map { task ->
+      async {
+        sem.withPermit {
+          val spots = runCatching {
+            val responseText = executeGetWithGzip(task.url, connectTimeoutMs = 20000, readTimeoutMs = 45000)
+            val parsed = json.decodeFromString<PhotonResponse>(responseText)
+            parsed.features.mapNotNull { feat ->
+              mapPhotonFeatureToCoolSpot(
+                feat = feat,
+                fallbackCategory = task.fallbackCategory,
+                minLat = if (task.filterByBounds) minLat else -90.0,
+                maxLat = if (task.filterByBounds) maxLat else 90.0,
+                minLon = if (task.filterByBounds) minLon else -180.0,
+                maxLon = if (task.filterByBounds) maxLon else 180.0,
               )
             }
           }.getOrDefault(emptyList())
+
+          if (spots.isNotEmpty()) {
+            allResults.addAll(spots)
+            onBatchLoaded(spots)
+          }
+          spots
         }
-      }.awaitAll().flatten()
+      }
+    }.awaitAll()
+
+    allResults.toList()
+  }
+
+  private suspend fun fetchExpandedRadiusFallback(
+    bbox: BoundingBoxCoords,
+    radiusKm: Int = 20,
+  ): List<CoolSpot> = coroutineScope {
+    val centerLat = (bbox.south + bbox.north) / 2.0
+    val centerLon = (bbox.west + bbox.east) / 2.0
+
+    val fallbackTasks = listOf(
+      "https://photon.komoot.io/reverse?lon=$centerLon&lat=$centerLat&radius=$radiusKm&limit=50&osm_tag=amenity:ice_cream&osm_tag=shop:ice_cream" to SpotCategory.ICE_CREAM,
+      "https://photon.komoot.io/reverse?lon=$centerLon&lat=$centerLat&radius=$radiusKm&limit=50&osm_tag=amenity:drinking_water&osm_tag=amenity:fountain" to SpotCategory.DRINKING_WATER,
+      "https://photon.komoot.io/reverse?lon=$centerLon&lat=$centerLat&radius=$radiusKm&limit=50&osm_tag=leisure:swimming_area&osm_tag=leisure:water_park&osm_tag=leisure:bathing_place&osm_tag=natural:beach" to SpotCategory.SWIMMING_BATHING,
+      "https://photon.komoot.io/reverse?lon=$centerLon&lat=$centerLat&radius=$radiusKm&limit=50&osm_tag=leisure:park&osm_tag=leisure:garden" to SpotCategory.PARK,
+      "https://photon.komoot.io/reverse?lon=$centerLon&lat=$centerLat&radius=$radiusKm&limit=50&osm_tag=amenity:place_of_worship&osm_tag=building:church&osm_tag=historic:castle" to SpotCategory.CHURCH_COOL_BUILDING,
+      "https://photon.komoot.io/reverse?lon=$centerLon&lat=$centerLat&radius=$radiusKm&limit=50&osm_tag=amenity:shelter&osm_tag=amenity:bench" to SpotCategory.SHADED_BENCH_SHELTER,
+      "https://photon.komoot.io/reverse?lon=$centerLon&lat=$centerLat&radius=$radiusKm&limit=50&osm_tag=tourism:museum&osm_tag=amenity:library" to SpotCategory.MUSEUM,
+    )
+
+    fallbackTasks.map { (url, cat) ->
+      async {
+        runCatching {
+          val text = executeGetWithGzip(url, connectTimeoutMs = 25000, readTimeoutMs = 60000)
+          val parsed = json.decodeFromString<PhotonResponse>(text)
+          parsed.features.mapNotNull { feat ->
+            mapPhotonFeatureToCoolSpot(feat, cat, -90.0, 90.0, -180.0, 180.0)
+          }
+        }.getOrDefault(emptyList())
+      }
+    }.awaitAll().flatten()
+  }
+
+  private fun mapPhotonFeatureToCoolSpot(
+    feat: PhotonFeatureItem,
+    fallbackCategory: SpotCategory,
+    minLat: Double,
+    maxLat: Double,
+    minLon: Double,
+    maxLon: Double,
+  ): CoolSpot? {
+    val coords = feat.geometry?.coordinates ?: return null
+    if (coords.size < 2) return null
+    val lon = coords[0]
+    val lat = coords[1]
+    if (lat !in minLat..maxLat || lon !in minLon..maxLon) return null
+
+    val props = feat.properties
+    val osmId = props["osm_id"]?.jsonPrimitive?.contentOrNull?.toLongOrNull()
+      ?: ((lat * 1_000_000).toLong() * 31L + (lon * 1_000_000).toLong())
+    val osmKey = props["osm_key"]?.jsonPrimitive?.contentOrNull ?: ""
+    val osmValue = props["osm_value"]?.jsonPrimitive?.contentOrNull ?: ""
+    val rawName = props["name"]?.jsonPrimitive?.contentOrNull?.trim()
+
+    // Filter out non-POI results like streets, bus stops, residential buildings or offices when keyword-searching
+    if (osmKey in setOf("highway", "railway", "Public_transport", "public_transport", "boundary", "place", "landuse", "Aeroway", "aeroway")) {
+      if (osmKey == "landuse" && osmValue in setOf("recreation_ground", "forest", "village_green", "orchard")) {
+        // Valid green space
+      } else {
+        return null
+      }
     }
+    if (osmKey == "building" && osmValue in setOf("yes", "apartments", "residential", "house", "commercial", "industrial", "retail", "office", "detached")) {
+      if (fallbackCategory == SpotCategory.ICE_CREAM && rawName != null && iceCreamNameRegex.containsMatchIn(rawName)) {
+        // Keep ice cream shop mapped on building
+      } else {
+        return null
+      }
+    }
+
+    // For ICE_CREAM fallback on generic amenity=cafe/restaurant, verify it's actually an ice cream place
+    if (fallbackCategory == SpotCategory.ICE_CREAM && osmValue !in setOf("ice_cream", "frozen_yogurt")) {
+      if (rawName == null || !iceCreamNameRegex.containsMatchIn(rawName)) {
+        return null
+      }
+    }
+
+    // Determine exact category from osm_key / osm_value / name
+    val category = when {
+      osmValue in setOf("ice_cream", "frozen_yogurt") ||
+        (rawName != null && iceCreamNameRegex.containsMatchIn(rawName) && fallbackCategory == SpotCategory.ICE_CREAM) ->
+        SpotCategory.ICE_CREAM
+      osmValue == "drinking_water" || osmValue == "water_tap" || osmValue == "drinking_fountain" ->
+        SpotCategory.DRINKING_WATER
+      osmValue == "kneipp_water_facility" || (rawName != null && kneippNameRegex.containsMatchIn(rawName)) ->
+        SpotCategory.KNEIPP
+      osmValue in setOf("splash_pad", "shower") ||
+        (rawName != null && waterPlayNameRegex.containsMatchIn(rawName)) ->
+        SpotCategory.WATER_PLAYGROUND
+      osmValue in setOf("swimming_area", "water_park", "bathing_place", "swimming_pool", "beach_resort", "beach", "public_bath") ->
+        SpotCategory.SWIMMING_BATHING
+      osmValue == "fountain" -> SpotCategory.FOUNTAIN
+      osmValue == "library" -> SpotCategory.LIBRARY
+      osmValue in setOf("museum", "gallery", "arts_centre") -> SpotCategory.MUSEUM
+      osmValue in setOf("place_of_worship", "church", "cathedral", "chapel", "castle", "monastery") ->
+        SpotCategory.CHURCH_COOL_BUILDING
+      osmValue in setOf("shelter", "bench", "pavilion", "gazebo", "picnic_site") ->
+        SpotCategory.SHADED_BENCH_SHELTER
+      osmValue in setOf("park", "garden", "recreation_ground", "nature_reserve", "forest", "wood", "village_green") ->
+        SpotCategory.PARK
+      osmValue in setOf("tree", "tree_row") -> SpotCategory.TREE_SHADE
+      else -> fallbackCategory
+    }
+
+    val title = when {
+      !rawName.isNullOrBlank() -> rawName
+      category == SpotCategory.ICE_CREAM -> "Eisdiele / Eiscafé"
+      category == SpotCategory.DRINKING_WATER -> "Trinkwasserbrunnen"
+      category == SpotCategory.FOUNTAIN -> "Springbrunnen / Wasserspiel"
+      category == SpotCategory.SWIMMING_BATHING -> "Badestelle / Freibad"
+      category == SpotCategory.WATER_PLAYGROUND -> "Wasserspielplatz / Abkühlung"
+      category == SpotCategory.KNEIPP -> "Kneipp-Wasseranlage"
+      category == SpotCategory.PARK -> "Park / Grünanlage"
+      category == SpotCategory.CHURCH_COOL_BUILDING -> "Kühle Kirche / Historisches Bauwerk"
+      category == SpotCategory.LIBRARY -> "Öffentliche Bibliothek"
+      category == SpotCategory.MUSEUM -> "Museum"
+      category == SpotCategory.SHADED_BENCH_SHELTER ->
+        if (osmValue == "bench") "Schattige Sitzbank" else "Schatten-Pavillon / Unterstand"
+      category == SpotCategory.TREE_SHADE -> "Schattenbaum / Baumallee"
+      else -> category.titleDe
+    }
+
+    val street = props["street"]?.jsonPrimitive?.contentOrNull
+    val housenumber = props["housenumber"]?.jsonPrimitive?.contentOrNull
+    val postcode = props["postcode"]?.jsonPrimitive?.contentOrNull
+    val city = props["city"]?.jsonPrimitive?.contentOrNull
+      ?: props["town"]?.jsonPrimitive?.contentOrNull
+      ?: props["village"]?.jsonPrimitive?.contentOrNull
+      ?: props["district"]?.jsonPrimitive?.contentOrNull
+
+    val address = buildString {
+      if (!street.isNullOrBlank()) {
+        append(street)
+        if (!housenumber.isNullOrBlank()) append(" $housenumber")
+      }
+      if (!city.isNullOrBlank()) {
+        if (isNotEmpty()) append(", ")
+        if (!postcode.isNullOrBlank()) append("$postcode ")
+        append(city)
+      }
+    }.takeIf { it.isNotBlank() }
+
+    return CoolSpot(
+      id = osmId,
+      lat = lat,
+      lon = lon,
+      category = category,
+      name = title,
+      description = category.subtitleDe,
+      address = address,
+      tags = mapOf(osmKey to osmValue),
+    )
+  }
 
   private fun fetchFromOverpassServers(
     bbox: BoundingBoxCoords,
     includeIndividualTrees: Boolean,
   ): List<CoolSpot> {
+    val centerLat = (bbox.south + bbox.north) / 2.0
+    val centerLon = (bbox.west + bbox.east) / 2.0
+    val isInSwitzerland = centerLat in 45.8..47.9 && centerLon in 5.9..10.6
+
+    val endpoints = buildList {
+      if (isInSwitzerland) add("https://overpass.osm.ch/api/interpreter")
+      add("https://overpass-api.de/api/interpreter")
+      add("https://overpass.private.coffee/api/interpreter")
+      add("https://overpass.kumi.systems/api/interpreter")
+    }
+
     val b = "${bbox.south},${bbox.west},${bbox.north},${bbox.east}"
     val treeNodeQuery = if (includeIndividualTrees) {
       """
@@ -316,7 +797,7 @@ class OverpassService {
     }
 
     val query = """
-      [out:json][timeout:6];
+      [out:json][timeout:45];
       (
         node["amenity"="drinking_water"]($b);
         way["amenity"="drinking_water"]($b);
@@ -336,13 +817,17 @@ class OverpassService {
         node["playground"="splash_pad"]($b);
         way["playground"="splash_pad"]($b);
         node["playground"="water"]($b);
-        node["amenity"="shower"]["indoor"="no"]($b);
+        node["amenity"="shower"]["indoor"!="yes"]($b);
         node["amenity"="ice_cream"]($b);
         way["amenity"="ice_cream"]($b);
         node["shop"="ice_cream"]($b);
         way["shop"="ice_cream"]($b);
-        node["cuisine"="ice_cream"]($b);
-        way["cuisine"="ice_cream"]($b);
+        node["shop"="frozen_yogurt"]($b);
+        way["shop"="frozen_yogurt"]($b);
+        node["cuisine"~"ice_cream|gelato|frozen_yogurt",i]($b);
+        way["cuisine"~"ice_cream|gelato|frozen_yogurt",i]($b);
+        node["ice_cream"="yes"]($b);
+        way["ice_cream"="yes"]($b);
         node["leisure"="bathing_place"]($b);
         way["leisure"="bathing_place"]($b);
         node["leisure"="garden"]($b);
@@ -359,10 +844,10 @@ class OverpassService {
         way["tourism"="museum"]($b);
         $treeNodeQuery
       );
-      out center 350;
+      out center 500;
     """.trimIndent()
 
-    for (endpoint in overpassEndpoints) {
+    for (endpoint in endpoints) {
       try {
         val responseText = executePost(endpoint, "data=" + URLEncoder.encode(query, "UTF-8"))
         val parsed = json.decodeFromString<OverpassResponse>(responseText)
@@ -411,7 +896,7 @@ class OverpassService {
       }
       val tripUrl = "https://router.project-osrm.org/trip/v1/$tripProfile/$coordsString?overview=full&geometries=geojson&source=first&roundtrip=false"
       try {
-        val body = executeGetWithGzip(tripUrl, connectTimeoutMs = 5000, readTimeoutMs = 7000)
+        val body = executeGetWithGzip(tripUrl, connectTimeoutMs = 15000, readTimeoutMs = 30000)
         val parsed = json.decodeFromString<OsrmTripResponse>(body)
         val trip = parsed.trips.firstOrNull()
         if (trip != null && trip.geometry != null && trip.geometry.coordinates.isNotEmpty()) {
@@ -473,7 +958,7 @@ class OverpassService {
 
     for (url in endpoints) {
       try {
-        val body = executeGetWithGzip(url, connectTimeoutMs = 4000, readTimeoutMs = 6000)
+        val body = executeGetWithGzip(url, connectTimeoutMs = 15000, readTimeoutMs = 30000)
         val parsed = json.decodeFromString<OsrmRouteResponse>(body)
         val route = parsed.routes.firstOrNull()
         if (route != null && route.geometry != null && route.geometry.coordinates.isNotEmpty()) {
@@ -508,68 +993,80 @@ class OverpassService {
       }
     }
 
-    // Fallback: straight lines connecting origin -> dest1 -> dest2 -> ...
-    var totalDist = 0
-    var prevLat = originLat
-    var prevLon = originLon
-    val polyline = mutableListOf(originLat to originLon)
-    for (spot in initialOrderedDestinations) {
-      totalDist += spot.distanceMetersTo(prevLat, prevLon)
-      polyline.add(spot.lat to spot.lon)
-      prevLat = spot.lat
-      prevLon = spot.lon
+    // Fallback: Direct line calculation with realistic speed estimate (never fails!)
+    val fallbackPoints = mutableListOf(originLat to originLon)
+    var totalStraightDist = 0
+    var currLat = originLat
+    var currLon = originLon
+    for (dest in initialOrderedDestinations) {
+      val d = dest.distanceMetersTo(currLat, currLon)
+      totalStraightDist += d
+      fallbackPoints.add(dest.lat to dest.lon)
+      currLat = dest.lat
+      currLon = dest.lon
     }
-    val fallbackSpeed = when (travelMode) {
-      TravelMode.WALKING -> 1.3
-      TravelMode.BICYCLING -> 4.0
-      TravelMode.DRIVING -> 8.0
+    val estimatedRoadDist = (totalStraightDist * 1.28).roundToInt().coerceAtLeast(1)
+    val speedMetersPerSec = when (travelMode) {
+      TravelMode.WALKING -> 1.35
+      TravelMode.BICYCLING -> 4.2
+      TravelMode.DRIVING -> 8.5
     }
+    val estimatedDurationSec = (estimatedRoadDist / speedMetersPerSec).roundToInt()
+
     Result.success(
       RouteInfo(
         targetSpots = initialOrderedDestinations,
         originLat = originLat,
         originLon = originLon,
         travelMode = travelMode,
-        distanceMeters = totalDist.coerceAtLeast(1),
-        durationSeconds = (totalDist / fallbackSpeed).roundToInt().coerceAtLeast(60),
-        polylinePoints = polyline,
+        distanceMeters = estimatedRoadDist,
+        durationSeconds = estimatedDurationSec,
+        polylinePoints = fallbackPoints,
       )
     )
   }
 
-  fun optimizeWaypointOrder(
+  /**
+   * Optimizes the visitation order of multiple spots starting at (originLat, originLon):
+   * - For <= 8 stops: Exact Traveling Salesperson (TSP) branch-and-bound permutation for 100% optimal shortest path.
+   * - For > 8 stops: Nearest-Neighbor + 2-Opt local search refinement.
+   */
+  internal fun optimizeWaypointOrder(
     originLat: Double,
     originLon: Double,
     destinations: List<CoolSpot>,
   ): List<CoolSpot> {
     if (destinations.size <= 1) return destinations
+
     if (destinations.size <= 8) {
-      return findShortestPermutation(originLat, originLon, destinations)
+      return exactShortestHamiltonianPath(originLat, originLon, destinations)
     }
-    val initial = nearestNeighborOrder(originLat, originLon, destinations)
-    return twoOptOptimize(originLat, originLon, initial)
+
+    val nnOrder = nearestNeighborOrder(originLat, originLon, destinations)
+    return twoOptOptimize(originLat, originLon, nnOrder)
   }
 
-  private fun findShortestPermutation(
+  private fun exactShortestHamiltonianPath(
     originLat: Double,
     originLon: Double,
     destinations: List<CoolSpot>,
   ): List<CoolSpot> {
     var bestOrder = destinations
-    var bestDist = Double.MAX_VALUE
+    var bestDistance = Double.MAX_VALUE
 
     fun permute(list: MutableList<CoolSpot>, start: Int) {
-      if (start >= list.size) {
-        var dist = 0.0
-        var curLat = originLat
-        var curLon = originLon
+      if (start == list.size) {
+        var total = 0.0
+        var cLat = originLat
+        var cLon = originLon
         for (spot in list) {
-          dist += spot.distanceMetersTo(curLat, curLon)
-          curLat = spot.lat
-          curLon = spot.lon
+          total += spot.distanceMetersTo(cLat, cLon)
+          if (total >= bestDistance) return
+          cLat = spot.lat
+          cLon = spot.lon
         }
-        if (dist < bestDist) {
-          bestDist = dist
+        if (total < bestDistance) {
+          bestDistance = total
           bestOrder = list.toList()
         }
         return
@@ -650,31 +1147,30 @@ class OverpassService {
             r--
           }
           val candDist = calculateTotalDist(candidate)
-          if (candDist < bestDist - 1.0) {
+          if (candDist + 0.5 < bestDist) {
             bestDist = candDist
-            for (idx in candidate.indices) {
-              current[idx] = candidate[idx]
-            }
+            for (idx in current.indices) current[idx] = candidate[idx]
             improved = true
-            break
           }
         }
-        if (improved) break
       }
     }
     return current
   }
 
   suspend fun searchCityOrAddress(query: String): Result<List<NominatimResult>> =
+    searchLocation(query)
+
+  suspend fun searchLocation(query: String): Result<List<NominatimResult>> =
     withContext(Dispatchers.IO) {
       val trimmed = query.trim()
       if (trimmed.isEmpty()) return@withContext Result.success(emptyList())
 
-      // 1. Try Photon (ultra-fast autocomplete from Komoot/OSM)
+      // 1. Primary fast location search via Photon (Komoot OpenStreetMap Search)
       try {
         val encoded = URLEncoder.encode(trimmed, "UTF-8")
         val photonUrl = "https://photon.komoot.io/api/?q=$encoded&limit=6&lang=de"
-        val body = executeGetWithGzip(photonUrl, connectTimeoutMs = 3500, readTimeoutMs = 4000)
+        val body = executeGetWithGzip(photonUrl, connectTimeoutMs = 15000, readTimeoutMs = 30000)
         val photonParsed = json.decodeFromString<PhotonResponse>(body)
         if (photonParsed.features.isNotEmpty()) {
           val results = photonParsed.features.mapNotNull { feat ->
@@ -723,7 +1219,7 @@ class OverpassService {
       try {
         val encoded = URLEncoder.encode(trimmed, "UTF-8")
         val url = "https://nominatim.openstreetmap.org/search?q=$encoded&format=json&limit=6&accept-language=de"
-        val body = executeGetWithGzip(url, connectTimeoutMs = 4500, readTimeoutMs = 5000)
+        val body = executeGetWithGzip(url, connectTimeoutMs = 15000, readTimeoutMs = 30000)
         val results = json.decodeFromString<List<NominatimResult>>(body)
         Result.success(results)
       } catch (e: Exception) {
@@ -733,15 +1229,15 @@ class OverpassService {
 
   private fun executeGetWithGzip(
     urlStr: String,
-    connectTimeoutMs: Int,
-    readTimeoutMs: Int,
+    connectTimeoutMs: Int = 30000,
+    readTimeoutMs: Int = 90000,
   ): String {
     val url = URL(urlStr)
     val conn = (url.openConnection() as HttpURLConnection).apply {
       requestMethod = "GET"
       connectTimeout = connectTimeoutMs
       readTimeout = readTimeoutMs
-      setRequestProperty("User-Agent", "CoolDown-App/1.0 (info@cooldown.app)")
+      setRequestProperty("User-Agent", "CoolDown-App/1.4 (tanjareize@web.de)")
       setRequestProperty("Accept", "application/json")
       setRequestProperty("Accept-Encoding", "gzip")
     }
@@ -762,9 +1258,9 @@ class OverpassService {
     val conn = (url.openConnection() as HttpURLConnection).apply {
       requestMethod = "POST"
       doOutput = true
-      connectTimeout = 3500
-      readTimeout = 6000
-      setRequestProperty("User-Agent", "CoolDown-App/1.0 (info@cooldown.app)")
+      connectTimeout = 25000
+      readTimeout = 60000
+      setRequestProperty("User-Agent", "CoolDown-App/1.4 (tanjareize@web.de)")
       setRequestProperty("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
       setRequestProperty("Accept-Encoding", "gzip")
     }
@@ -806,37 +1302,73 @@ class OverpassService {
     val tags = el.tags
     if (tags.isEmpty()) return null
 
+    val rawName = tags["name:de"] ?: tags["name:en"] ?: tags["name"] ?: tags["brand"] ?: tags["operator"]
+    val rawDesc = tags["description:de"] ?: tags["description"] ?: ""
+    val cuisine = tags["cuisine"] ?: ""
+
+    val isIceCreamTagOrName =
+      tags["amenity"] == "ice_cream" ||
+        tags["shop"] == "ice_cream" ||
+        tags["shop"] == "frozen_yogurt" ||
+        tags["vending"] == "ice_cream" ||
+        tags["ice_cream"] == "yes" ||
+        tags["diet:ice_cream"] == "yes" ||
+        cuisine.contains("ice_cream", ignoreCase = true) ||
+        cuisine.contains("gelato", ignoreCase = true) ||
+        cuisine.contains("frozen_yogurt", ignoreCase = true) ||
+        ((tags["amenity"] in setOf("cafe", "fast_food", "restaurant", "bar", "bistro") || tags["shop"] != null) &&
+          rawName != null && iceCreamNameRegex.containsMatchIn(rawName))
+
     val category = when {
-      tags["refill"] == "yes" || tags["drinking_water:refill"] == "yes" -> SpotCategory.REFILL_STATION
+      isIceCreamTagOrName -> SpotCategory.ICE_CREAM
+      tags["refill"] == "yes" || tags["drinking_water:refill"] == "yes" ||
+        tags["free_water"] == "yes" || tags["free_water:refill"] == "yes" -> SpotCategory.REFILL_STATION
       tags["amenity"] == "drinking_water" || tags["drinking_water"] == "yes" ||
+        tags["drinking_water:legal"] == "yes" ||
+        tags["man_made"] == "drinking_fountain" ||
         (tags["man_made"] == "water_tap" && tags["drinking_water"] != "no") ||
-        (tags["amenity"] == "fountain" && tags["drinking_water"] == "yes") -> SpotCategory.DRINKING_WATER
-      tags["amenity"] == "kneipp_water_facility" -> SpotCategory.KNEIPP
+        (tags["amenity"] == "fountain" && tags["drinking_water"] == "yes") ||
+        (tags["natural"] == "spring" && tags["drinking_water"] == "yes") -> SpotCategory.DRINKING_WATER
+      tags["amenity"] == "kneipp_water_facility" || tags["kneipp"] == "yes" ||
+        (rawName != null && kneippNameRegex.containsMatchIn(rawName)) ||
+        kneippNameRegex.containsMatchIn(rawDesc) -> SpotCategory.KNEIPP
       tags["playground"] == "splash_pad" || tags["playground"] == "water" ||
-        (tags["amenity"] == "shower" && tags["indoor"] != "yes") -> SpotCategory.WATER_PLAYGROUND
+        tags["playground:water"] == "yes" || tags["water_play"] == "yes" ||
+        tags["cooling"] == "mist" || tags["mist_sprayer"] == "yes" ||
+        (tags["amenity"] == "shower" && tags["indoor"] != "yes") ||
+        (tags["leisure"] == "playground" &&
+          ((rawName != null && waterPlayNameRegex.containsMatchIn(rawName)) ||
+            waterPlayNameRegex.containsMatchIn(rawDesc))) -> SpotCategory.WATER_PLAYGROUND
       tags["leisure"] == "swimming_area" || tags["leisure"] == "water_park" ||
-        tags["leisure"] == "bathing_place" ||
+        tags["leisure"] == "bathing_place" || tags["leisure"] == "beach_resort" ||
         (tags["leisure"] == "swimming_pool" && tags["access"] != "private" && tags["indoor"] != "yes") ||
-        tags["natural"] == "beach" || tags["sport"] == "swimming" -> SpotCategory.SWIMMING_BATHING
-      tags["amenity"] == "fountain" -> SpotCategory.FOUNTAIN
-      tags["amenity"] == "ice_cream" || tags["shop"] == "ice_cream" ||
-        tags["cuisine"] == "ice_cream" || tags["cuisine"]?.contains("ice_cream") == true ||
-        tags["ice_cream"] == "yes" -> SpotCategory.ICE_CREAM
-      tags["amenity"] == "library" -> SpotCategory.LIBRARY
-      tags["tourism"] == "museum" || tags["tourism"] == "gallery" -> SpotCategory.MUSEUM
+        tags["natural"] == "beach" ||
+        (tags["sport"] == "swimming" && tags["access"] != "private" && tags["indoor"] != "yes") ||
+        (tags["amenity"] == "public_bath" && tags["indoor"] != "yes") -> SpotCategory.SWIMMING_BATHING
+      tags["amenity"] == "fountain" || tags["man_made"] == "water_fountain" || tags["water"] == "fountain" ->
+        SpotCategory.FOUNTAIN
+      tags["amenity"] == "library" || tags["building"] == "library" -> SpotCategory.LIBRARY
+      tags["tourism"] == "museum" || tags["tourism"] == "gallery" || tags["amenity"] == "arts_centre" ->
+        SpotCategory.MUSEUM
       tags["amenity"] == "place_of_worship" || tags["building"] == "church" ||
         tags["building"] == "cathedral" || tags["building"] == "chapel" ||
-        tags["historic"] == "castle" || tags["historic"] == "monastery" -> SpotCategory.CHURCH_COOL_BUILDING
-      tags["amenity"] == "shelter" ||
-        (tags["amenity"] == "bench" && (tags["covered"] == "yes" || tags["shade"] == "yes")) -> SpotCategory.SHADED_BENCH_SHELTER
+        tags["building"] == "monastery" ||
+        tags["historic"] == "castle" || tags["historic"] == "monastery" || tags["historic"] == "church" ->
+        SpotCategory.CHURCH_COOL_BUILDING
+      tags["amenity"] == "shelter" || tags["building"] == "pavilion" ||
+        tags["leisure"] == "gazebo" || tags["leisure"] == "bandstand" ||
+        (tags["leisure"] == "picnic_table" && tags["covered"] == "yes") ||
+        (tags["amenity"] == "bench" && (tags["covered"] == "yes" || tags["shade"] == "yes" || tags["backrest"] == "yes")) ->
+        SpotCategory.SHADED_BENCH_SHELTER
       tags["leisure"] == "park" || (tags["leisure"] == "garden" && tags["access"] != "private") ||
+        tags["leisure"] == "nature_reserve" ||
         tags["landuse"] == "forest" || tags["landuse"] == "recreation_ground" ||
+        tags["landuse"] == "village_green" ||
         tags["natural"] == "wood" -> SpotCategory.PARK
       tags["natural"] == "tree" || tags["natural"] == "tree_row" || tags["trees"] == "yes" -> SpotCategory.TREE_SHADE
       else -> return null
     }
 
-    val rawName = tags["name:de"] ?: tags["name:en"] ?: tags["name"] ?: tags["brand"] ?: tags["operator"]
     val name = when {
       !rawName.isNullOrBlank() -> rawName
       category == SpotCategory.DRINKING_WATER -> "Trinkwasserbrunnen"

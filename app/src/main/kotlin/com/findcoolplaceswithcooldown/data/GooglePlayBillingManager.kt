@@ -36,6 +36,7 @@ class GooglePlayBillingManager(
       billingClient = BillingClient.newBuilder(context)
         .setListener(this)
         .enablePendingPurchases(pendingParams)
+        .enableAutoServiceReconnection()
         .build()
       startConnection()
     } catch (e: Throwable) {
@@ -149,13 +150,15 @@ class GooglePlayBillingManager(
   ) {
     if (billingResult.responseCode == BillingClient.BillingResponseCode.OK && purchases != null) {
       for (purchase in purchases) {
-        // Consume in-app one-time donation so user can donate again anytime
-        val consumeParams = ConsumeParams.newBuilder()
-          .setPurchaseToken(purchase.purchaseToken)
-          .build()
-        billingClient?.consumeAsync(consumeParams) { _, _ -> }
-        purchase.products.forEach { prodId ->
-          onPurchaseSuccess(prodId)
+        if (purchase.purchaseState == com.android.billingclient.api.Purchase.PurchaseState.PURCHASED) {
+          // Consume in-app one-time donation so user can donate again anytime
+          val consumeParams = ConsumeParams.newBuilder()
+            .setPurchaseToken(purchase.purchaseToken)
+            .build()
+          billingClient?.consumeAsync(consumeParams) { _, _ -> }
+          purchase.products.forEach { prodId ->
+            onPurchaseSuccess(prodId)
+          }
         }
       }
     }

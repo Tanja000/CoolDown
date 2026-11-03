@@ -64,6 +64,14 @@ class CoolSpotCacheManager(context: Context) {
     prefs.edit().putBoolean("has_seen_consent_banner", seen).apply()
   }
 
+  fun hasSeenOnboarding(): Boolean {
+    return prefs.getBoolean("has_seen_onboarding_v1", false)
+  }
+
+  fun setHasSeenOnboarding(seen: Boolean) {
+    prefs.edit().putBoolean("has_seen_onboarding_v1", seen).apply()
+  }
+
   fun saveCache(
     centerLat: Double,
     centerLon: Double,

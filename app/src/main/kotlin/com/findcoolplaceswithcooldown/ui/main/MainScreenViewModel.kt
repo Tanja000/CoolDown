@@ -46,10 +46,12 @@ data class CoolDownUiState(
   val showMapStyleDialog: Boolean = false,
   val language: AppLanguage = AppLanguage.DE,
   val isAdFree: Boolean = false,
+  val isFullScreenMap: Boolean = false,
   val personalizedAdsConsent: Boolean = true,
   val hasSeenConsentBanner: Boolean = true,
   val showIceCreamDialog: Boolean = false,
   val showLegalPrivacyDialog: Boolean = false,
+  val showOnboardingDialog: Boolean = false,
 ) {
   val isAllCategoriesSelected: Boolean
     get() = activeCategories.size == SpotCategory.entries.size
@@ -105,12 +107,14 @@ class MainScreenViewModel(
       val savedLang = cacheManager?.getSavedLanguage() ?: AppLanguage.DE
       val personalizedConsent = cacheManager?.getPersonalizedAdsConsent() ?: true
       val seenConsent = cacheManager?.hasSeenConsentBanner() ?: false
+      val seenOnboarding = cacheManager?.hasSeenOnboarding() ?: false
       _uiState.update {
         it.copy(
           language = savedLang,
           isAdFree = false,
           personalizedAdsConsent = personalizedConsent,
           hasSeenConsentBanner = seenConsent,
+          showOnboardingDialog = !seenOnboarding,
         )
       }
     }
@@ -160,10 +164,10 @@ class MainScreenViewModel(
     val startLat = currentGpsLocation?.first ?: cached?.centerLat ?: _uiState.value.mapCenterLat
     val startLon = currentGpsLocation?.second ?: cached?.centerLon ?: _uiState.value.mapCenterLon
     val bbox = BoundingBoxCoords(
-      south = startLat - 0.012,
-      west = startLon - 0.018,
-      north = startLat + 0.012,
-      east = startLon + 0.018,
+      south = startLat - 0.0085,
+      west = startLon - 0.0125,
+      north = startLat + 0.0085,
+      east = startLon + 0.0125,
     )
     onMapViewportChanged(
       centerLat = startLat,
@@ -192,6 +196,37 @@ class MainScreenViewModel(
 
   fun setShowLegalPrivacyDialog(show: Boolean) {
     _uiState.update { it.copy(showLegalPrivacyDialog = show) }
+  }
+
+  fun dismissOnboardingDialog() {
+    cacheManager?.setHasSeenOnboarding(true)
+    _uiState.update { it.copy(showOnboardingDialog = false) }
+  }
+
+  fun setShowOnboardingDialog(show: Boolean) {
+    if (!show) {
+      cacheManager?.setHasSeenOnboarding(true)
+    }
+    _uiState.update { it.copy(showOnboardingDialog = show) }
+  }
+
+  fun toggleFullScreenMap() {
+    _uiState.update {
+      val nextFull = !it.isFullScreenMap
+      it.copy(
+        isFullScreenMap = nextFull,
+        selectedSpot = if (nextFull) null else it.selectedSpot,
+      )
+    }
+  }
+
+  fun setFullScreenMap(fullScreen: Boolean) {
+    _uiState.update {
+      it.copy(
+        isFullScreenMap = fullScreen,
+        selectedSpot = if (fullScreen) null else it.selectedSpot,
+      )
+    }
   }
 
   fun setPersonalizedAdsConsent(consent: Boolean) {
@@ -242,7 +277,7 @@ class MainScreenViewModel(
       )
     }
 
-    if (triggerAutoFetch || lastFetchedBbox == null) {
+    if (triggerAutoFetch || lastFetchedBbox == null || (_uiState.value.isFullScreenMap && movedSignificantly && !_uiState.value.isLoading)) {
       fetchSpotsInBounds(bbox, zoom)
     }
   }
@@ -258,7 +293,25 @@ class MainScreenViewModel(
         )
       }
       val includeTrees = zoom >= 15.0
-      val result = overpassService.fetchCoolSpots(bbox, includeIndividualTrees = includeTrees)
+      val result = overpassService.fetchCoolSpots(
+        bbox = bbox,
+        includeIndividualTrees = includeTrees,
+        onPartialSpots = { partialSpots ->
+          if (partialSpots.isNotEmpty()) {
+            _uiState.update { state ->
+              val updatedSelected = state.selectedSpot?.let { sel ->
+                partialSpots.find { it.id == sel.id && it.category == sel.category } ?: sel
+              }
+              state.copy(
+                allSpots = partialSpots,
+                selectedSpot = updatedSelected,
+                isShowingCachedResults = false,
+                errorMessage = null,
+              )
+            }
+          }
+        },
+      )
       result.fold(
         onSuccess = { spots ->
           lastFetchedBbox = bbox
@@ -283,15 +336,12 @@ class MainScreenViewModel(
             )
           }
         },
-        onFailure = { err ->
+        onFailure = {
+          // Never display disruptive timeout errors; keep existing or partial spots
           _uiState.update {
             it.copy(
               isLoading = false,
-              errorMessage = if (it.language == AppLanguage.EN) {
-                "Loading failed: ${err.localizedMessage ?: "Network error"}"
-              } else {
-                "Laden fehlgeschlagen: ${err.localizedMessage ?: "Netzwerkfehler"}"
-              },
+              errorMessage = null,
             )
           }
         },
@@ -303,6 +353,11 @@ class MainScreenViewModel(
     if (spot == null) {
       _uiState.update { it.copy(selectedSpot = null) }
       return
+    }
+
+    // If user taps a pin while in Fullscreen Map View, exit Fullscreen so details can be seen
+    if (_uiState.value.isFullScreenMap) {
+      _uiState.update { it.copy(isFullScreenMap = false) }
     }
 
     val currentRoute = _uiState.value.activeRoute

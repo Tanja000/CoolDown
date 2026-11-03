@@ -16,6 +16,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -64,6 +65,8 @@ import androidx.compose.material.icons.filled.DirectionsCar
 import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.Forest
+import androidx.compose.material.icons.filled.Fullscreen
+import androidx.compose.material.icons.filled.FullscreenExit
 import androidx.compose.material.icons.filled.Icecream
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Language
@@ -121,6 +124,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
@@ -131,6 +135,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation3.runtime.NavKey
+import com.findcoolplaceswithcooldown.R
 import com.findcoolplaceswithcooldown.data.AppLanguage
 import com.findcoolplaceswithcooldown.data.BoundingBoxCoords
 import com.findcoolplaceswithcooldown.data.CoolSpot
@@ -364,24 +369,62 @@ fun CoolDownMapScreen(
           }
         }
 
-        // Add markers for all filtered CoolSpots
+        // Add markers with smart spatial clustering so the map stays clean and fast
         val selectedId = uiState.selectedSpot?.id
         val selectedCat = uiState.selectedSpot?.category
-        for (spot in uiState.filteredSpots) {
-          val isSelected = (spot.id == selectedId && spot.category == selectedCat)
-          val marker = Marker(mapView).apply {
-            position = GeoPoint(spot.lat, spot.lon)
-            title = spot.name
-            snippet = spot.category.title(lang)
-            setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
-            icon = MarkerIconFactory.getMarkerDrawable(context, spot.category, isSelected)
-            setOnMarkerClickListener { _, _ ->
-              viewModel.selectSpot(spot, autoCalculateRoute = true)
-              mapView.controller.animateTo(GeoPoint(spot.lat, spot.lon))
-              true
+        val routeSpotIds = uiState.activeRoute?.targetSpots?.map { it.id }?.toSet().orEmpty()
+        val zoom = mapView.zoomLevelDouble
+
+        val renderItems = buildClusteredMapItems(
+          spots = uiState.filteredSpots,
+          zoom = zoom,
+          selectedId = selectedId,
+          selectedCat = selectedCat,
+          routeSpotIds = routeSpotIds,
+        )
+
+        for (item in renderItems) {
+          when (item) {
+            is MapRenderItem.SingleSpot -> {
+              val spot = item.spot
+              val isSelected = (spot.id == selectedId && spot.category == selectedCat)
+              val marker = Marker(mapView).apply {
+                position = GeoPoint(spot.lat, spot.lon)
+                title = spot.name
+                snippet = spot.category.title(lang)
+                setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+                icon = MarkerIconFactory.getMarkerDrawable(context, spot.category, isSelected)
+                setOnMarkerClickListener { _, _ ->
+                  viewModel.selectSpot(spot, autoCalculateRoute = true)
+                  mapView.controller.animateTo(GeoPoint(spot.lat, spot.lon))
+                  true
+                }
+              }
+              mapView.overlays.add(marker)
+            }
+            is MapRenderItem.Cluster -> {
+              val marker = Marker(mapView).apply {
+                position = GeoPoint(item.centerLat, item.centerLon)
+                title = "${item.spots.size} ${item.dominantCategory.title(lang)}"
+                setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
+                icon = MarkerIconFactory.getClusterDrawable(
+                  context = context,
+                  category = item.dominantCategory,
+                  count = item.spots.size,
+                )
+                setOnMarkerClickListener { _, _ ->
+                  val nextZoom = (mapView.zoomLevelDouble + 1.8).coerceAtMost(18.5)
+                  mapView.controller.animateTo(
+                    GeoPoint(item.centerLat, item.centerLon),
+                    nextZoom,
+                    550L,
+                  )
+                  true
+                }
+              }
+              mapView.overlays.add(marker)
             }
           }
-          mapView.overlays.add(marker)
         }
         mapView.invalidate()
       },
@@ -402,7 +445,7 @@ fun CoolDownMapScreen(
         .statusBarsPadding()
         .padding(top = 8.dp),
     ) {
-      // Etage 1: Top App Header Bar
+      // Etage 1: Top App Header Bar (App Icon links oben statt Text "CoolDown" & Schneeflocke)
       Card(
         modifier = Modifier
           .fillMaxWidth()
@@ -421,18 +464,12 @@ fun CoolDownMapScreen(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.weight(1f),
           ) {
-            Icon(
-              imageVector = Icons.Default.AcUnit,
-              contentDescription = null,
-              tint = Color(0xFF0077E6),
-              modifier = Modifier.size(24.dp),
-            )
-            Spacer(modifier = Modifier.width(8.dp))
-            Text(
-              text = "CoolDown",
-              style = MaterialTheme.typography.titleMedium,
-              fontWeight = FontWeight.Bold,
-              color = Color(0xFF0D47A1),
+            Image(
+              painter = painterResource(id = R.drawable.app_logo_snowflake),
+              contentDescription = "App Icon",
+              modifier = Modifier
+                .size(34.dp)
+                .clip(RoundedCornerShape(8.dp)),
             )
           }
 
@@ -476,6 +513,13 @@ fun CoolDownMapScreen(
               tint = MaterialTheme.colorScheme.primary,
             )
           }
+          IconButton(onClick = { viewModel.toggleFullScreenMap() }) {
+            Icon(
+              imageVector = if (uiState.isFullScreenMap) Icons.Default.FullscreenExit else Icons.Default.Fullscreen,
+              contentDescription = if (lang == AppLanguage.EN) "Full screen map" else "Karten-Vollansicht",
+              tint = MaterialTheme.colorScheme.primary,
+            )
+          }
           IconButton(onClick = { viewModel.setShowLegendDialog(true) }) {
             Icon(
               imageVector = Icons.Default.Info,
@@ -486,255 +530,263 @@ fun CoolDownMapScreen(
         }
       }
 
-      Spacer(modifier = Modifier.height(8.dp))
-
-      // Etage 2: Grosses, komfortables Ortssuchfeld mit Sofort-Vorschlägen (eine Etage nach unten geschoben!)
-      Card(
-        modifier = Modifier
-          .fillMaxWidth()
-          .padding(horizontal = 12.dp),
-        shape = RoundedCornerShape(18.dp),
-        elevation = CardDefaults.cardElevation(defaultElevation = 5.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+      AnimatedVisibility(
+        visible = !uiState.isFullScreenMap,
+        enter = fadeIn() + slideInVertically(),
+        exit = fadeOut() + slideOutVertically(),
       ) {
-        Column {
-          Row(
+        Column(modifier = Modifier.fillMaxWidth()) {
+          Spacer(modifier = Modifier.height(6.dp))
+
+          // Etage 2: Grosses, komfortables Ortssuchfeld mit Sofort-Vorschlägen (eine Etage nach unten geschoben!)
+          Card(
             modifier = Modifier
               .fillMaxWidth()
-              .height(54.dp)
-              .padding(horizontal = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
+              .padding(horizontal = 12.dp),
+            shape = RoundedCornerShape(18.dp),
+            elevation = CardDefaults.cardElevation(defaultElevation = 5.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
           ) {
-            Icon(
-              imageVector = Icons.Default.Search,
-              contentDescription = null,
-              tint = MaterialTheme.colorScheme.primary,
-              modifier = Modifier.size(24.dp),
-            )
-            Spacer(modifier = Modifier.width(4.dp))
-            TextField(
-              value = uiState.searchQuery,
-              onValueChange = viewModel::onSearchQueryChanged,
-              modifier = Modifier.weight(1f),
-              placeholder = {
-                Text(
-                  text = if (lang == AppLanguage.EN) "Search city, street or location…" else "Ort, Straße oder Stadt suchen…",
-                  style = MaterialTheme.typography.bodyLarge,
-                  maxLines = 1,
-                  overflow = TextOverflow.Ellipsis,
-                )
-              },
-              singleLine = true,
-              keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-              keyboardActions = KeyboardActions(
-                onSearch = { focusManager.clearFocus() }
-              ),
-              colors = TextFieldDefaults.colors(
-                focusedContainerColor = Color.Transparent,
-                unfocusedContainerColor = Color.Transparent,
-                focusedIndicatorColor = Color.Transparent,
-                unfocusedIndicatorColor = Color.Transparent,
-              ),
-            )
-
-            if (uiState.isSearchingLocation) {
-              CircularProgressIndicator(
+            Column {
+              Row(
                 modifier = Modifier
-                  .size(20.dp)
-                  .padding(end = 6.dp),
-                strokeWidth = 2.dp,
-              )
-            } else if (uiState.searchQuery.isNotEmpty()) {
-              IconButton(onClick = viewModel::clearSearch) {
-                Icon(Icons.Default.Clear, contentDescription = if (lang == AppLanguage.EN) "Clear" else "Löschen")
-              }
-            }
-          }
-
-          if (uiState.isLoading || uiState.isCalculatingRoute) {
-            LinearProgressIndicator(
-              modifier = Modifier.fillMaxWidth(),
-              color = Color(0xFF0077E6),
-            )
-          }
-
-          // Search Suggestions Dropdown with Instant Confirmation
-          if (uiState.searchResults.isNotEmpty()) {
-            HorizontalDivider()
-            Column(modifier = Modifier.fillMaxWidth()) {
-              uiState.searchResults.forEach { place ->
-                Row(
-                  modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable {
-                      val lat = place.lat.toDoubleOrNull()
-                      val lon = place.lon.toDoubleOrNull()
-                      viewModel.clearSearch()
-                      focusManager.clearFocus()
-                      if (lat != null && lon != null) {
-                        mapViewRef?.let { map ->
-                          map.controller.animateTo(GeoPoint(lat, lon), 15.2, 800L)
-                          map.postDelayed(
-                            { triggerSearchFromMap(map, viewModel, auto = true) },
-                            850L,
-                          )
-                        }
-                      }
-                    }
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
-                  verticalAlignment = Alignment.CenterVertically,
-                ) {
-                  Icon(
-                    imageVector = Icons.Default.LocationOn,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(22.dp),
-                  )
-                  Spacer(modifier = Modifier.width(12.dp))
-                  Column {
+                  .fillMaxWidth()
+                  .height(50.dp)
+                  .padding(horizontal = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+              ) {
+                Icon(
+                  imageVector = Icons.Default.Search,
+                  contentDescription = null,
+                  tint = MaterialTheme.colorScheme.primary,
+                  modifier = Modifier.size(22.dp),
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+                TextField(
+                  value = uiState.searchQuery,
+                  onValueChange = viewModel::onSearchQueryChanged,
+                  modifier = Modifier.weight(1f),
+                  placeholder = {
                     Text(
-                      text = place.name ?: place.display_name.substringBefore(","),
+                      text = if (lang == AppLanguage.EN) "Search city, street or location…" else "Ort, Straße oder Stadt suchen…",
                       style = MaterialTheme.typography.bodyMedium,
-                      fontWeight = FontWeight.Bold,
                       maxLines = 1,
                       overflow = TextOverflow.Ellipsis,
                     )
-                    Text(
-                      text = place.display_name,
-                      style = MaterialTheme.typography.bodySmall,
-                      color = MaterialTheme.colorScheme.onSurfaceVariant,
-                      maxLines = 2,
-                      overflow = TextOverflow.Ellipsis,
-                    )
+                  },
+                  singleLine = true,
+                  keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                  keyboardActions = KeyboardActions(
+                    onSearch = { focusManager.clearFocus() }
+                  ),
+                  colors = TextFieldDefaults.colors(
+                    focusedContainerColor = Color.Transparent,
+                    unfocusedContainerColor = Color.Transparent,
+                    focusedIndicatorColor = Color.Transparent,
+                    unfocusedIndicatorColor = Color.Transparent,
+                  ),
+                )
+
+                if (uiState.isSearchingLocation) {
+                  CircularProgressIndicator(
+                    modifier = Modifier
+                      .size(20.dp)
+                      .padding(end = 6.dp),
+                    strokeWidth = 2.dp,
+                  )
+                } else if (uiState.searchQuery.isNotEmpty()) {
+                  IconButton(onClick = viewModel::clearSearch) {
+                    Icon(Icons.Default.Clear, contentDescription = if (lang == AppLanguage.EN) "Clear" else "Löschen")
                   }
                 }
-                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
               }
+
+              if (uiState.isLoading || uiState.isCalculatingRoute) {
+                LinearProgressIndicator(
+                  modifier = Modifier.fillMaxWidth(),
+                  color = Color(0xFF0077E6),
+                )
+              }
+
+              // Search Suggestions Dropdown with Instant Confirmation
+              if (uiState.searchResults.isNotEmpty()) {
+                HorizontalDivider()
+                Column(modifier = Modifier.fillMaxWidth()) {
+                  uiState.searchResults.forEach { place ->
+                    Row(
+                      modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                          val lat = place.lat.toDoubleOrNull()
+                          val lon = place.lon.toDoubleOrNull()
+                          viewModel.clearSearch()
+                          focusManager.clearFocus()
+                          if (lat != null && lon != null) {
+                            mapViewRef?.let { map ->
+                              map.controller.animateTo(GeoPoint(lat, lon), 15.2, 800L)
+                              map.postDelayed(
+                                { triggerSearchFromMap(map, viewModel, auto = true) },
+                                850L,
+                              )
+                            }
+                          }
+                        }
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                      verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                      Icon(
+                        imageVector = Icons.Default.LocationOn,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(22.dp),
+                      )
+                      Spacer(modifier = Modifier.width(12.dp))
+                      Column {
+                        Text(
+                          text = place.name ?: place.display_name.substringBefore(","),
+                          style = MaterialTheme.typography.bodyMedium,
+                          fontWeight = FontWeight.Bold,
+                          maxLines = 1,
+                          overflow = TextOverflow.Ellipsis,
+                        )
+                        Text(
+                          text = place.display_name,
+                          style = MaterialTheme.typography.bodySmall,
+                          color = MaterialTheme.colorScheme.onSurfaceVariant,
+                          maxLines = 2,
+                          overflow = TextOverflow.Ellipsis,
+                        )
+                      }
+                    }
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                  }
+                }
+              }
+            }
+          }
+
+          Spacer(modifier = Modifier.height(6.dp))
+
+          // Category Filter Chips
+          val allSelected = uiState.isAllCategoriesSelected
+          val noneSelected = uiState.isNoCategorySelected
+
+          Row(
+            modifier = Modifier
+              .fillMaxWidth()
+              .horizontalScroll(rememberScrollState())
+              .padding(horizontal = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+          ) {
+            // High-contrast, easily recognizable "Alle" button (can toggle between ALL and NONE)
+            Surface(
+              modifier = Modifier
+                .clip(RoundedCornerShape(22.dp))
+                .clickable { viewModel.toggleAllCategories() },
+              color = if (allSelected) Color(0xFF0D47A1) else Color(0xFFF0F4F8),
+              shape = RoundedCornerShape(22.dp),
+              shadowElevation = 4.dp,
+            ) {
+              Row(
+                modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+              ) {
+                Icon(
+                  imageVector = if (allSelected) Icons.Default.Check else Icons.Default.FilterList,
+                  contentDescription = null,
+                  tint = if (allSelected) Color.White else Color(0xFF0D47A1),
+                  modifier = Modifier.size(18.dp),
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                  text = if (lang == AppLanguage.EN) {
+                    if (uiState.allSpots.isNotEmpty()) "All (${uiState.allSpots.size})" else "All"
+                  } else {
+                    if (uiState.allSpots.isNotEmpty()) "Alle (${uiState.allSpots.size})" else "Alle"
+                  },
+                  fontWeight = FontWeight.Bold,
+                  color = if (allSelected) Color.White else Color(0xFF0D47A1),
+                )
+              }
+            }
+
+            // Separate Button: "Keine" / "None"
+            Surface(
+              modifier = Modifier
+                .clip(RoundedCornerShape(22.dp))
+                .clickable { viewModel.clearAllCategories() },
+              color = if (noneSelected) Color(0xFF37474F) else Color.White,
+              shape = RoundedCornerShape(22.dp),
+              shadowElevation = 3.dp,
+            ) {
+              Row(
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+              ) {
+                Icon(
+                  imageVector = Icons.Default.Clear,
+                  contentDescription = null,
+                  tint = if (noneSelected) Color.White else Color(0xFF455A64),
+                  modifier = Modifier.size(16.dp),
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+                Text(
+                  text = if (lang == AppLanguage.EN) "None" else "Keine",
+                  fontWeight = if (noneSelected) FontWeight.Bold else FontWeight.Medium,
+                  color = if (noneSelected) Color.White else Color(0xFF455A64),
+                )
+              }
+            }
+
+            // Multi-selection Category Filter Chips
+            SpotCategory.entries.forEach { category ->
+              val isSelected = category in uiState.activeCategories
+              val count = uiState.categoryCounts[category] ?: 0
+              val catColor = Color(category.colorHex)
+
+              FilterChip(
+                selected = isSelected,
+                onClick = { viewModel.toggleCategory(category) },
+                label = {
+                  Text(
+                    text = if (count > 0) "${category.title(lang)} ($count)" else category.title(lang),
+                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.SemiBold,
+                    color = if (isSelected) Color.White else Color(0xFF1A1C1E),
+                  )
+                },
+                leadingIcon = {
+                  Icon(
+                    imageVector = category.iconVector(),
+                    contentDescription = null,
+                    tint = if (isSelected) Color.White else catColor,
+                    modifier = Modifier.size(18.dp),
+                  )
+                },
+                shape = RoundedCornerShape(20.dp),
+                colors = FilterChipDefaults.filterChipColors(
+                  containerColor = Color.White,
+                  labelColor = Color(0xFF1A1C1E),
+                  selectedContainerColor = catColor,
+                  selectedLabelColor = Color.White,
+                ),
+                border = FilterChipDefaults.filterChipBorder(
+                  enabled = true,
+                  selected = isSelected,
+                  borderColor = catColor.copy(alpha = 0.65f),
+                  selectedBorderColor = Color.White,
+                  borderWidth = 1.2.dp,
+                  selectedBorderWidth = 1.8.dp,
+                ),
+                elevation = FilterChipDefaults.filterChipElevation(elevation = 4.dp),
+              )
             }
           }
         }
       }
 
-      Spacer(modifier = Modifier.height(8.dp))
-
-      // Category Filter Chips
-      val allSelected = uiState.isAllCategoriesSelected
-      val noneSelected = uiState.isNoCategorySelected
-
-      Row(
-        modifier = Modifier
-          .fillMaxWidth()
-          .horizontalScroll(rememberScrollState())
-          .padding(horizontal = 12.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-      ) {
-        // High-contrast, easily recognizable "Alle" button (can toggle between ALL and NONE)
-        Surface(
-          modifier = Modifier
-            .clip(RoundedCornerShape(22.dp))
-            .clickable { viewModel.toggleAllCategories() },
-          color = if (allSelected) Color(0xFF0D47A1) else Color(0xFFF0F4F8),
-          shape = RoundedCornerShape(22.dp),
-          shadowElevation = 4.dp,
-        ) {
-          Row(
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-          ) {
-            Icon(
-              imageVector = if (allSelected) Icons.Default.Check else Icons.Default.FilterList,
-              contentDescription = null,
-              tint = if (allSelected) Color.White else Color(0xFF0D47A1),
-              modifier = Modifier.size(18.dp),
-            )
-            Spacer(modifier = Modifier.width(6.dp))
-            Text(
-              text = if (lang == AppLanguage.EN) {
-                if (uiState.allSpots.isNotEmpty()) "All (${uiState.allSpots.size})" else "All"
-              } else {
-                if (uiState.allSpots.isNotEmpty()) "Alle (${uiState.allSpots.size})" else "Alle"
-              },
-              fontWeight = FontWeight.Bold,
-              color = if (allSelected) Color.White else Color(0xFF0D47A1),
-            )
-          }
-        }
-
-        // Separate Button: "Keine" / "None"
-        Surface(
-          modifier = Modifier
-            .clip(RoundedCornerShape(22.dp))
-            .clickable { viewModel.clearAllCategories() },
-          color = if (noneSelected) Color(0xFF37474F) else Color.White,
-          shape = RoundedCornerShape(22.dp),
-          shadowElevation = 3.dp,
-        ) {
-          Row(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-          ) {
-            Icon(
-              imageVector = Icons.Default.Clear,
-              contentDescription = null,
-              tint = if (noneSelected) Color.White else Color(0xFF455A64),
-              modifier = Modifier.size(16.dp),
-            )
-            Spacer(modifier = Modifier.width(4.dp))
-            Text(
-              text = if (lang == AppLanguage.EN) "None" else "Keine",
-              fontWeight = if (noneSelected) FontWeight.Bold else FontWeight.Medium,
-              color = if (noneSelected) Color.White else Color(0xFF455A64),
-            )
-          }
-        }
-
-        // Multi-selection Category Filter Chips
-        SpotCategory.entries.forEach { category ->
-          val isSelected = category in uiState.activeCategories
-          val count = uiState.categoryCounts[category] ?: 0
-          val catColor = Color(category.colorHex)
-
-          FilterChip(
-            selected = isSelected,
-            onClick = { viewModel.toggleCategory(category) },
-            label = {
-              Text(
-                text = if (count > 0) "${category.title(lang)} ($count)" else category.title(lang),
-                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.SemiBold,
-                color = if (isSelected) Color.White else Color(0xFF1A1C1E),
-              )
-            },
-            leadingIcon = {
-              Icon(
-                imageVector = category.iconVector(),
-                contentDescription = null,
-                tint = if (isSelected) Color.White else catColor,
-                modifier = Modifier.size(18.dp),
-              )
-            },
-            shape = RoundedCornerShape(20.dp),
-            colors = FilterChipDefaults.filterChipColors(
-              containerColor = Color.White,
-              labelColor = Color(0xFF1A1C1E),
-              selectedContainerColor = catColor,
-              selectedLabelColor = Color.White,
-            ),
-            border = FilterChipDefaults.filterChipBorder(
-              enabled = true,
-              selected = isSelected,
-              borderColor = catColor.copy(alpha = 0.65f),
-              selectedBorderColor = Color.White,
-              borderWidth = 1.2.dp,
-              selectedBorderWidth = 1.8.dp,
-            ),
-            elevation = FilterChipDefaults.filterChipElevation(elevation = 4.dp),
-          )
-        }
-      }
-
-      // Active Route Bar when Detail Card is closed (Allows opening overview of all stops or removing route)
-      if (uiState.activeRoute != null && uiState.selectedSpot == null) {
+      // Active Route Bar when Detail Card is closed (hidden in Fullscreen Map View)
+      if (!uiState.isFullScreenMap && uiState.activeRoute != null && uiState.selectedSpot == null) {
         val route = uiState.activeRoute
         Surface(
           modifier = Modifier
@@ -850,9 +902,9 @@ fun CoolDownMapScreen(
         }
       }
 
-      // "Search this map section" button
+      // "Search this map section" button (hidden in Fullscreen Map View)
       AnimatedVisibility(
-        visible = uiState.hasMovedMapSinceFetch && !uiState.isLoading,
+        visible = !uiState.isFullScreenMap && uiState.hasMovedMapSinceFetch && !uiState.isLoading,
         modifier = Modifier
           .align(Alignment.CenterHorizontally)
           .padding(top = 8.dp),
@@ -882,32 +934,34 @@ fun CoolDownMapScreen(
         }
       }
 
-      // Error banner
-      uiState.errorMessage?.let { errorMsg ->
-        Card(
-          modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp),
-          colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
-        ) {
-          Row(
+      // Error banner (hidden in Fullscreen Map View)
+      if (!uiState.isFullScreenMap) {
+        uiState.errorMessage?.let { errorMsg ->
+          Card(
             modifier = Modifier
               .fillMaxWidth()
-              .padding(horizontal = 12.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
+              .padding(horizontal = 16.dp, vertical = 8.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
           ) {
-            Text(
-              text = errorMsg,
-              style = MaterialTheme.typography.bodySmall,
-              color = MaterialTheme.colorScheme.onErrorContainer,
-              modifier = Modifier.weight(1f),
-            )
-            TextButton(
-              onClick = {
-                mapViewRef?.let { triggerSearchFromMap(it, viewModel, auto = false) }
-              }
+            Row(
+              modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+              verticalAlignment = Alignment.CenterVertically,
             ) {
-              Text(if (lang == AppLanguage.EN) "Retry" else "Erneut")
+              Text(
+                text = errorMsg,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onErrorContainer,
+                modifier = Modifier.weight(1f),
+              )
+              TextButton(
+                onClick = {
+                  mapViewRef?.let { triggerSearchFromMap(it, viewModel, auto = false) }
+                }
+              ) {
+                Text(if (lang == AppLanguage.EN) "Retry" else "Erneut")
+              }
             }
           }
         }
@@ -915,6 +969,7 @@ fun CoolDownMapScreen(
     }
 
     // 3. Bottom Controls & Selected CoolSpot Detail Card
+    // In Fullscreen Map View: ONLY the Ad Banner is displayed at the bottom ("nur die Karte, die obere Iconleiste und die Werbung")
     Column(
       modifier = Modifier
         .align(Alignment.BottomCenter)
@@ -922,79 +977,105 @@ fun CoolDownMapScreen(
         .navigationBarsPadding()
         .padding(12.dp),
     ) {
-      Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.Bottom,
-      ) {
-        // Left: Open list of spots
-        ExtendedFloatingActionButton(
-          onClick = { viewModel.setShowSpotListSheet(true) },
-          containerColor = MaterialTheme.colorScheme.surface,
-          contentColor = MaterialTheme.colorScheme.primary,
-          icon = {
-            Icon(Icons.Default.Explore, contentDescription = null)
-          },
-          text = {
-            Text(
-              text = if (uiState.isLoading) {
-                if (lang == AppLanguage.EN) "Searching…" else "Suche läuft…"
-              } else {
-                if (lang == AppLanguage.EN) "${uiState.filteredSpots.size} places nearby"
-                else "${uiState.filteredSpots.size} Orte in der Nähe"
-              },
-              fontWeight = FontWeight.SemiBold,
-            )
-          },
-        )
-
-        // Right: My Location Button (Refresh FAB entfernt wie gewünscht)
-        FloatingActionButton(
-          onClick = {
-            if (!hasLocationPermission) {
-              permissionLauncher.launch(
-                arrayOf(
-                  Manifest.permission.ACCESS_FINE_LOCATION,
-                  Manifest.permission.ACCESS_COARSE_LOCATION,
-                )
-              )
-            } else {
-              val loc = getLastKnownLocation(context)
-              if (loc != null) {
-                viewModel.updateUserLocation(loc.latitude, loc.longitude)
-                mapViewRef?.let { map ->
-                  map.controller.animateTo(GeoPoint(loc.latitude, loc.longitude), 15.8, 800L)
-                  map.postDelayed({ triggerSearchFromMap(map, viewModel, auto = true) }, 850L)
-                }
-              } else {
-                mapViewRef?.let { triggerSearchFromMap(it, viewModel, auto = false) }
-              }
-            }
-          },
-          containerColor = Color(0xFF0077E6),
-          contentColor = Color.White,
+      if (!uiState.isFullScreenMap) {
+        Row(
+          modifier = Modifier.fillMaxWidth(),
+          horizontalArrangement = Arrangement.SpaceBetween,
+          verticalAlignment = Alignment.Bottom,
         ) {
-          Icon(
-            Icons.Default.MyLocation,
-            contentDescription = if (lang == AppLanguage.EN) "My location" else "Mein Standort",
+          // Left: Open list of spots
+          ExtendedFloatingActionButton(
+            onClick = { viewModel.setShowSpotListSheet(true) },
+            containerColor = MaterialTheme.colorScheme.surface,
+            contentColor = MaterialTheme.colorScheme.primary,
+            icon = {
+              Icon(Icons.Default.Explore, contentDescription = null)
+            },
+            text = {
+              Text(
+                text = if (uiState.isLoading) {
+                  val count = uiState.filteredSpots.size
+                  if (count > 0) {
+                    if (lang == AppLanguage.EN) "Loading… ($count found)" else "Lade… ($count gefunden)"
+                  } else {
+                    if (lang == AppLanguage.EN) "Searching cool spots…" else "Suche kühle Orte…"
+                  }
+                } else {
+                  if (lang == AppLanguage.EN) "${uiState.filteredSpots.size} places nearby"
+                  else "${uiState.filteredSpots.size} Orte in der Nähe"
+                },
+                fontWeight = FontWeight.SemiBold,
+              )
+            },
           )
+
+          // Right: Full-screen Map toggle & My Location Button
+          Column(
+            horizontalAlignment = Alignment.End,
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+          ) {
+            SmallFloatingActionButton(
+              onClick = { viewModel.toggleFullScreenMap() },
+              containerColor = MaterialTheme.colorScheme.surface,
+              contentColor = MaterialTheme.colorScheme.primary,
+            ) {
+              Icon(
+                imageVector = Icons.Default.Fullscreen,
+                contentDescription = if (lang == AppLanguage.EN) "Full screen map" else "Karten-Vollansicht",
+              )
+            }
+
+            FloatingActionButton(
+              onClick = {
+                if (!hasLocationPermission) {
+                  permissionLauncher.launch(
+                    arrayOf(
+                      Manifest.permission.ACCESS_FINE_LOCATION,
+                      Manifest.permission.ACCESS_COARSE_LOCATION,
+                    )
+                  )
+                } else {
+                  val loc = getLastKnownLocation(context)
+                  if (loc != null) {
+                    viewModel.updateUserLocation(loc.latitude, loc.longitude)
+                    mapViewRef?.let { map ->
+                      map.controller.animateTo(GeoPoint(loc.latitude, loc.longitude), 15.8, 800L)
+                      map.postDelayed({ triggerSearchFromMap(map, viewModel, auto = true) }, 850L)
+                    }
+                  } else {
+                    mapViewRef?.let { triggerSearchFromMap(it, viewModel, auto = false) }
+                  }
+                }
+              },
+              containerColor = Color(0xFF0077E6),
+              contentColor = Color.White,
+            ) {
+              Icon(
+                Icons.Default.MyLocation,
+                contentDescription = if (lang == AppLanguage.EN) "My location" else "Mein Standort",
+              )
+            }
+          }
         }
       }
 
-      // First-launch GDPR / DSGVO Consent Banner
-      if (!uiState.hasSeenConsentBanner && uiState.selectedSpot == null) {
+      // First-launch GDPR / DSGVO Consent Banner (hidden in Full-Screen Map mode)
+      if (!uiState.hasSeenConsentBanner && uiState.selectedSpot == null && !uiState.isFullScreenMap) {
         Spacer(modifier = Modifier.height(6.dp))
         GdprConsentBanner(
           lang = lang,
+          onToggleLanguage = { viewModel.toggleLanguage() },
           onAcceptPersonalized = { viewModel.dismissConsentBanner(acceptPersonalized = true) },
           onAcceptNonPersonalized = { viewModel.dismissConsentBanner(acceptPersonalized = false) },
           onOpenPrivacyDetails = { viewModel.setShowLegalPrivacyDialog(true) },
         )
       }
 
-      // Subtle Ad Banner (when not ad-free and no spot detail card is open)
-      if (uiState.selectedSpot == null && !uiState.isAdFree) {
-        Spacer(modifier = Modifier.height(6.dp))
+      // Subtle Ad Banner (shown both in normal mode and in Full-Screen Map mode!)
+      if ((uiState.isFullScreenMap || uiState.selectedSpot == null) && !uiState.isAdFree) {
+        if (!uiState.isFullScreenMap) {
+          Spacer(modifier = Modifier.height(6.dp))
+        }
         SubtleAdBanner(
           isAdFree = uiState.isAdFree,
           personalizedAds = uiState.personalizedAdsConsent,
@@ -1004,9 +1085,9 @@ fun CoolDownMapScreen(
         )
       }
 
-      // Detail Card
+      // Detail Card (hidden in Full-Screen Map mode)
       AnimatedVisibility(
-        visible = uiState.selectedSpot != null,
+        visible = !uiState.isFullScreenMap && uiState.selectedSpot != null,
         enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
         exit = slideOutVertically(targetOffsetY = { it }) + fadeOut(),
       ) {
@@ -1240,7 +1321,19 @@ fun CoolDownMapScreen(
       lang = lang,
       personalizedAdsConsent = uiState.personalizedAdsConsent,
       onTogglePersonalizedAds = { consent -> viewModel.setPersonalizedAdsConsent(consent) },
+      onToggleLanguage = { viewModel.toggleLanguage() },
       onDismiss = { viewModel.setShowLegalPrivacyDialog(false) },
+    )
+  }
+
+  // 9. First-Launch Entertaining Quick Intro Dialog (shown while spots load in the background)
+  if (uiState.showOnboardingDialog) {
+    OnboardingIntroDialog(
+      lang = lang,
+      isLoading = uiState.isLoading,
+      spotsFoundCount = uiState.allSpots.size,
+      onToggleLanguage = { viewModel.toggleLanguage() },
+      onDismiss = { viewModel.dismissOnboardingDialog() },
     )
   }
 }
@@ -1959,6 +2052,86 @@ fun SpotCategory.iconVector(): ImageVector = when (this) {
   SpotCategory.TREE_SHADE -> Icons.Default.Forest
 }
 
+private sealed interface MapRenderItem {
+  data class SingleSpot(val spot: CoolSpot) : MapRenderItem
+  data class Cluster(
+    val centerLat: Double,
+    val centerLon: Double,
+    val spots: List<CoolSpot>,
+    val dominantCategory: SpotCategory,
+  ) : MapRenderItem
+}
+
+/**
+ * Gruppiert nahe beieinander liegende Pins abhängig von der aktuellen Zoomstufe in übersichtliche Cluster.
+ * Ausgewählte Orte und Ziele einer aktiven Route bleiben immer als Einzel-Pin sichtbar!
+ */
+private fun buildClusteredMapItems(
+  spots: List<CoolSpot>,
+  zoom: Double,
+  selectedId: Long?,
+  selectedCat: SpotCategory?,
+  routeSpotIds: Set<Long>,
+): List<MapRenderItem> {
+  if (spots.isEmpty()) return emptyList()
+
+  // Ab sehr naher Zoomstufe (>= 17.3) zeige alle Pins einzeln
+  if (zoom >= 17.3 || spots.size <= 18) {
+    return spots.map { MapRenderItem.SingleSpot(it) }
+  }
+
+  // Dynamische Rastergröße in Grad je nach Zoomstufe
+  val cellDeg = when {
+    zoom >= 16.3 -> 0.0014 // ~140m
+    zoom >= 15.3 -> 0.0028 // ~280m
+    zoom >= 14.3 -> 0.0055 // ~550m
+    zoom >= 13.0 -> 0.0120 // ~1.2km
+    else -> 0.0250         // ~2.5km
+  }
+
+  val items = mutableListOf<MapRenderItem>()
+  val clusterCandidates = mutableListOf<CoolSpot>()
+
+  for (spot in spots) {
+    val isPinned = (spot.id == selectedId && spot.category == selectedCat) || (spot.id in routeSpotIds)
+    if (isPinned) {
+      items.add(MapRenderItem.SingleSpot(spot))
+    } else {
+      clusterCandidates.add(spot)
+    }
+  }
+
+  val gridGroups = clusterCandidates.groupBy { spot ->
+    val latBucket = kotlin.math.floor(spot.lat / cellDeg).toLong()
+    val lonBucket = kotlin.math.floor(spot.lon / cellDeg).toLong()
+    latBucket to lonBucket
+  }
+
+  for ((_, group) in gridGroups) {
+    if (group.size == 1) {
+      items.add(MapRenderItem.SingleSpot(group.first()))
+    } else {
+      val avgLat = group.sumOf { it.lat } / group.size
+      val avgLon = group.sumOf { it.lon } / group.size
+      val dominantCat = group
+        .groupingBy { it.category }
+        .eachCount()
+        .maxByOrNull { it.value }
+        ?.key ?: group.first().category
+      items.add(
+        MapRenderItem.Cluster(
+          centerLat = avgLat,
+          centerLon = avgLon,
+          spots = group,
+          dominantCategory = dominantCat,
+        )
+      )
+    }
+  }
+
+  return items
+}
+
 private fun triggerSearchFromMap(
   mapView: MapView,
   viewModel: MainScreenViewModel,
@@ -1968,27 +2141,35 @@ private fun triggerSearchFromMap(
   val center = mapView.mapCenter
   val zoom = mapView.zoomLevelDouble
 
-  val maxSpan = 0.08
-  val rawLatSpan = (bb.latNorth - bb.latSouth).let { if (it <= 0.0005) 0.024 else it }
-  val rawLonSpan = (bb.lonEast - bb.lonWest).let { if (it <= 0.0005) 0.032 else it }
-  val latSpan = rawLatSpan.coerceAtMost(maxSpan)
-  val lonSpan = rawLonSpan.coerceAtMost(maxSpan)
-  val clampedBbox = BoundingBoxCoords(
-    south = center.latitude - latSpan / 2.0,
-    west = center.longitude - lonSpan / 2.0,
-    north = center.latitude + latSpan / 2.0,
-    east = center.longitude + lonSpan / 2.0,
-  )
+  // Verwende exakt den vom Nutzer gewählten sichtbaren Kartenausschnitt!
+  val hasValidVisibleBox = bb.latNorth > bb.latSouth + 0.0002 && bb.lonEast > bb.lonWest + 0.0002
+  val exactBbox = if (hasValidVisibleBox) {
+    val rawLatSpan = (bb.latNorth - bb.latSouth).coerceAtMost(0.18)
+    val rawLonSpan = (bb.lonEast - bb.lonWest).coerceAtMost(0.24)
+    BoundingBoxCoords(
+      south = center.latitude - rawLatSpan / 2.0,
+      west = center.longitude - rawLonSpan / 2.0,
+      north = center.latitude + rawLatSpan / 2.0,
+      east = center.longitude + rawLonSpan / 2.0,
+    )
+  } else {
+    BoundingBoxCoords(
+      south = center.latitude - 0.010,
+      west = center.longitude - 0.014,
+      north = center.latitude + 0.010,
+      east = center.longitude + 0.014,
+    )
+  }
 
   viewModel.onMapViewportChanged(
     centerLat = center.latitude,
     centerLon = center.longitude,
     zoom = zoom,
-    bbox = clampedBbox,
+    bbox = exactBbox,
     triggerAutoFetch = auto,
   )
   if (!auto) {
-    viewModel.fetchSpotsInBounds(clampedBbox, zoom)
+    viewModel.fetchSpotsInBounds(exactBbox, zoom)
   }
 }
 

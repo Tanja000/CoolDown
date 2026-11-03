@@ -12,6 +12,75 @@ import com.findcoolplaceswithcooldown.data.SpotCategory
 
 object MarkerIconFactory {
   private val cache = mutableMapOf<Pair<SpotCategory, Boolean>, Drawable>()
+  private val clusterCache = mutableMapOf<Pair<SpotCategory, Int>, Drawable>()
+
+  fun getClusterDrawable(
+    context: Context,
+    category: SpotCategory,
+    count: Int,
+  ): Drawable {
+    val bucketCount = count.coerceAtMost(99)
+    val key = category to bucketCount
+    clusterCache[key]?.let { return it }
+
+    val density = context.resources.displayMetrics.density
+    val sizeDp = when {
+      count >= 20 -> 44f
+      count >= 5 -> 40f
+      else -> 36f
+    }
+    val sizePx = (sizeDp * density).toInt().coerceAtLeast(48)
+
+    val bitmap = Bitmap.createBitmap(sizePx, sizePx, Bitmap.Config.ARGB_8888)
+    val canvas = Canvas(bitmap)
+
+    val cx = sizePx / 2f
+    val cy = sizePx / 2f
+    val outerRadius = (sizePx / 2f) - (2f * density)
+    val innerRadius = outerRadius - (4f * density)
+
+    // Outer halo in category color
+    val haloPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+      color = Color.argb(
+        110,
+        Color.red(category.colorHex),
+        Color.green(category.colorHex),
+        Color.blue(category.colorHex),
+      )
+      style = Paint.Style.FILL
+    }
+    canvas.drawCircle(cx, cy, outerRadius, haloPaint)
+
+    // Inner solid circle
+    val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+      color = category.colorHex
+      style = Paint.Style.FILL
+    }
+    canvas.drawCircle(cx, cy, innerRadius, fillPaint)
+
+    // White border
+    val borderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+      color = Color.WHITE
+      style = Paint.Style.STROKE
+      strokeWidth = 2.2f * density
+    }
+    canvas.drawCircle(cx, cy, innerRadius, borderPaint)
+
+    // Count label
+    val label = if (count > 99) "99+" else count.toString()
+    val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+      color = Color.WHITE
+      textAlign = Paint.Align.CENTER
+      isFakeBoldText = true
+      textSize = (if (label.length >= 3) 11.5f else 13.5f) * density
+    }
+    val textOffsetY = (textPaint.descent() + textPaint.ascent()) / 2f
+    canvas.drawText(label, cx, cy - textOffsetY, textPaint)
+
+    val drawable = BitmapDrawable(context.resources, bitmap)
+    clusterCache[key] = drawable
+    return drawable
+  }
 
   fun getMarkerDrawable(
     context: Context,

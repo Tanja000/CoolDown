@@ -42,6 +42,7 @@ import com.findcoolplaceswithcooldown.data.AppLanguage
 @Composable
 fun GdprConsentBanner(
   lang: AppLanguage,
+  onToggleLanguage: () -> Unit = {},
   onAcceptPersonalized: () -> Unit,
   onAcceptNonPersonalized: () -> Unit,
   onOpenPrivacyDetails: () -> Unit,
@@ -56,15 +57,34 @@ fun GdprConsentBanner(
     elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
   ) {
     Column(modifier = Modifier.padding(14.dp)) {
-      Text(
-        text = if (lang == AppLanguage.EN) {
-          "Privacy & Advertising Notice (GDPR)"
-        } else {
-          "Datenschutz & Werbe-Hinweis (DSGVO)"
-        },
-        style = MaterialTheme.typography.titleSmall,
-        fontWeight = FontWeight.Bold,
-      )
+      Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+      ) {
+        Text(
+          text = if (lang == AppLanguage.EN) {
+            "Privacy & Advertising Notice (GDPR)"
+          } else {
+            "Datenschutz & Werbe-Hinweis (DSGVO)"
+          },
+          style = MaterialTheme.typography.titleSmall,
+          fontWeight = FontWeight.Bold,
+          modifier = Modifier.weight(1f),
+        )
+        OutlinedButton(
+          onClick = onToggleLanguage,
+          shape = RoundedCornerShape(10.dp),
+          modifier = Modifier.height(30.dp),
+          contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp, vertical = 2.dp),
+        ) {
+          Text(
+            text = if (lang == AppLanguage.DE) "🇬🇧 English" else "🇩🇪 Deutsch",
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Bold,
+          )
+        }
+      }
       Spacer(modifier = Modifier.height(4.dp))
       Text(
         text = if (lang == AppLanguage.EN) {
@@ -120,6 +140,7 @@ fun LegalPrivacyDialog(
   lang: AppLanguage,
   personalizedAdsConsent: Boolean,
   onTogglePersonalizedAds: (Boolean) -> Unit,
+  onToggleLanguage: () -> Unit = {},
   onDismiss: () -> Unit,
 ) {
   Dialog(
@@ -146,7 +167,10 @@ fun LegalPrivacyDialog(
           horizontalArrangement = Arrangement.SpaceBetween,
           verticalAlignment = Alignment.CenterVertically,
         ) {
-          Row(verticalAlignment = Alignment.CenterVertically) {
+          Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.weight(1f),
+          ) {
             Icon(
               imageVector = Icons.Default.Gavel,
               contentDescription = null,
@@ -160,6 +184,18 @@ fun LegalPrivacyDialog(
                 "Datenschutz, Lizenzen & Rechtliches"
               },
               style = MaterialTheme.typography.titleMedium,
+              fontWeight = FontWeight.Bold,
+            )
+          }
+          OutlinedButton(
+            onClick = onToggleLanguage,
+            shape = RoundedCornerShape(10.dp),
+            modifier = Modifier.height(30.dp),
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+          ) {
+            Text(
+              text = if (lang == AppLanguage.DE) "🇬🇧 EN" else "🇩🇪 DE",
+              fontSize = 11.sp,
               fontWeight = FontWeight.Bold,
             )
           }

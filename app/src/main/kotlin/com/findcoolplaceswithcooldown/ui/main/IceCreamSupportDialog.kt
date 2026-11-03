@@ -144,19 +144,18 @@ fun IceCreamSupportDialog(
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // Option 1: 0,99 EUR
+        // Option 1: Eine Kugel (0,99 €)
         IceCreamTierItem(
-          emoji = "🍧",
-          title = if (lang == AppLanguage.EN) "Refreshing Water Ice" else "Kleines Wassereis",
+          emoji = "🍦",
+          title = if (lang == AppLanguage.EN) "One Scoop" else "Eine Kugel",
           price = "0,99 €",
-          subtitle = if (lang == AppLanguage.EN) "Quick cool-down support" else "Schnelle Abkühlung für zwischendurch",
           onClick = {
             if (activity != null) {
               billingManager.launchPurchase(activity, MonetizationConfig.SKU_DONATION_099) {
                 onSupportSuccess(MonetizationConfig.SKU_DONATION_099)
                 Toast.makeText(
                   context,
-                  if (lang == AppLanguage.EN) "Thank you so much for the 0,99 € support! ❤️🍧" else "Vielen herzlichen Dank für die 0,99 € Spende! ❤️🍧",
+                  if (lang == AppLanguage.EN) "Thank you so much! ❤️🍦" else "Vielen herzlichen Dank! ❤️🍦",
                   Toast.LENGTH_LONG,
                 ).show()
                 onDismiss()
@@ -168,21 +167,20 @@ fun IceCreamSupportDialog(
           },
         )
 
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(10.dp))
 
-        // Option 2: 1,99 EUR
+        // Option 2: 2 Kugeln (1,99 €)
         IceCreamTierItem(
-          emoji = "🍦",
-          title = if (lang == AppLanguage.EN) "Small Lemon Scoop" else "Kleines Bällchen Zitrone",
+          emoji = "🍨",
+          title = if (lang == AppLanguage.EN) "2 Scoops" else "2 Kugeln",
           price = "1,99 €",
-          subtitle = if (lang == AppLanguage.EN) "Refreshing kickstart for app development" else "Erfrischender Kickstart für die Entwicklung",
           onClick = {
             if (activity != null) {
               billingManager.launchPurchase(activity, MonetizationConfig.SKU_DONATION_199) {
                 onSupportSuccess(MonetizationConfig.SKU_DONATION_199)
                 Toast.makeText(
                   context,
-                  if (lang == AppLanguage.EN) "Thank you so much for the ice cream! ❤️🍦" else "Vielen herzlichen Dank für das Eis (1,99 €)! ❤️🍦",
+                  if (lang == AppLanguage.EN) "Thank you so much! ❤️🍨" else "Vielen herzlichen Dank! ❤️🍨",
                   Toast.LENGTH_LONG,
                 ).show()
                 onDismiss()
@@ -194,38 +192,11 @@ fun IceCreamSupportDialog(
           },
         )
 
-        Spacer(modifier = Modifier.height(8.dp))
-
-        // Option 3: 3,99 EUR (Spaghetti Eis Becher)
-        IceCreamTierItem(
-          emoji = "🍨",
-          title = if (lang == AppLanguage.EN) "Spaghetti Ice Cream Sundae" else "Spaghetti Eis Becher",
-          price = "3,99 €",
-          subtitle = if (lang == AppLanguage.EN) "Absolute Summer Hit! Savior against heat" else "Der absolute Sommer-Hit! Rettung gegen Hitze",
-          isPopular = true,
-          onClick = {
-            if (activity != null) {
-              billingManager.launchPurchase(activity, MonetizationConfig.SKU_DONATION_399) {
-                onSupportSuccess(MonetizationConfig.SKU_DONATION_399)
-                Toast.makeText(
-                  context,
-                  if (lang == AppLanguage.EN) "Huge thanks for the delicious sundae! ❤️🍨" else "Riesiges Dankeschön für den Spaghetti-Eisbecher! ❤️🍨",
-                  Toast.LENGTH_LONG,
-                ).show()
-                onDismiss()
-              }
-            } else {
-              onSupportSuccess(MonetizationConfig.SKU_DONATION_399)
-              onDismiss()
-            }
-          },
-        )
-
         Spacer(modifier = Modifier.height(14.dp))
         HorizontalDivider()
         Spacer(modifier = Modifier.height(12.dp))
 
-        // Option 4: Jeder andere frei eingebbare Wunschbetrag
+        // Freier Wunschbetrag
         Text(
           text = if (lang == AppLanguage.EN) "Or enter any custom amount:" else "Oder freien Wunschbetrag eingeben:",
           style = MaterialTheme.typography.titleSmall,
@@ -351,71 +322,46 @@ private fun IceCreamTierItem(
   emoji: String,
   title: String,
   price: String,
-  subtitle: String,
-  isPopular: Boolean = false,
   onClick: () -> Unit,
 ) {
   Surface(
     modifier = Modifier
       .fillMaxWidth()
-      .clip(RoundedCornerShape(14.dp))
+      .clip(RoundedCornerShape(16.dp))
       .clickable { onClick() }
       .border(
-        width = if (isPopular) 2.dp else 1.dp,
-        color = if (isPopular) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
-        shape = RoundedCornerShape(14.dp),
+        width = 1.dp,
+        color = MaterialTheme.colorScheme.outlineVariant,
+        shape = RoundedCornerShape(16.dp),
       ),
-    color = if (isPopular) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.25f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
-    shape = RoundedCornerShape(14.dp),
+    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+    shape = RoundedCornerShape(16.dp),
   ) {
     Row(
       modifier = Modifier
         .fillMaxWidth()
-        .padding(12.dp),
+        .padding(horizontal = 16.dp, vertical = 14.dp),
       verticalAlignment = Alignment.CenterVertically,
     ) {
-      Text(text = emoji, fontSize = 28.sp)
-      Spacer(modifier = Modifier.width(12.dp))
-      Column(modifier = Modifier.weight(1f)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-          Text(
-            text = title,
-            style = MaterialTheme.typography.bodyMedium,
-            fontWeight = FontWeight.Bold,
-          )
-          if (isPopular) {
-            Spacer(modifier = Modifier.width(6.dp))
-            Surface(
-              shape = RoundedCornerShape(6.dp),
-              color = MaterialTheme.colorScheme.primary,
-            ) {
-              Text(
-                text = "TIPP",
-                color = MaterialTheme.colorScheme.onPrimary,
-                fontSize = 9.sp,
-                fontWeight = FontWeight.ExtraBold,
-                modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
-              )
-            }
-          }
-        }
-        Text(
-          text = subtitle,
-          style = MaterialTheme.typography.bodySmall,
-          color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-      }
+      Text(text = emoji, fontSize = 32.sp)
+      Spacer(modifier = Modifier.width(14.dp))
+      Text(
+        text = title,
+        style = MaterialTheme.typography.titleMedium,
+        fontWeight = FontWeight.Bold,
+        modifier = Modifier.weight(1f),
+      )
       Spacer(modifier = Modifier.width(8.dp))
       Surface(
-        shape = RoundedCornerShape(8.dp),
+        shape = RoundedCornerShape(10.dp),
         color = MaterialTheme.colorScheme.primary,
       ) {
         Text(
           text = price,
-          style = MaterialTheme.typography.labelMedium,
+          style = MaterialTheme.typography.titleSmall,
           fontWeight = FontWeight.Bold,
           color = MaterialTheme.colorScheme.onPrimary,
-          modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+          modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
         )
       }
     }

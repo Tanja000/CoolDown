@@ -153,4 +153,36 @@ class MainScreenViewModelTest {
     // Even though no category is selected, the route destination remains visible in filteredSpots!
     assertTrue(state.filteredSpots.any { it.id == 42L })
   }
+
+  @Test
+  fun toggleFullScreenMap_togglesFullScreenModeAndClearsSelectedSpot() = runTest {
+    val viewModel = MainScreenViewModel()
+    val spot = CoolSpot(
+      id = 99L,
+      lat = 52.52,
+      lon = 13.40,
+      category = SpotCategory.ICE_CREAM,
+      name = "Eiscafé",
+    )
+    viewModel.selectSpot(spot, autoCalculateRoute = false)
+    assertEquals(spot, viewModel.uiState.first().selectedSpot)
+    assertEquals(false, viewModel.uiState.first().isFullScreenMap)
+
+    viewModel.toggleFullScreenMap()
+    assertTrue(viewModel.uiState.first().isFullScreenMap)
+    assertEquals(null, viewModel.uiState.first().selectedSpot)
+
+    viewModel.toggleFullScreenMap()
+    assertEquals(false, viewModel.uiState.first().isFullScreenMap)
+  }
+
+  @Test
+  fun onboardingDialog_togglesAndDismissesCorrectly() = runTest {
+    val viewModel = MainScreenViewModel()
+    viewModel.setShowOnboardingDialog(true)
+    assertTrue(viewModel.uiState.first().showOnboardingDialog)
+
+    viewModel.dismissOnboardingDialog()
+    assertEquals(false, viewModel.uiState.first().showOnboardingDialog)
+  }
 }
